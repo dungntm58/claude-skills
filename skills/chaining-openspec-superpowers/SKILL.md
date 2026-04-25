@@ -115,26 +115,45 @@ Save the design to: openspec/changes/<name>/.superpowers/design.md
 
 Create the `.superpowers/` directory if it doesn't exist.
 
-**About the step 4 → step 5 chain:** `superpowers:brainstorming`'s terminal state is invoking `superpowers:writing-plans` automatically. Include the plan location preset in the step 4 args so it carries through:
+**Break the brainstorming → writing-plans auto-chain.** `superpowers:brainstorming` will normally hand off to `superpowers:writing-plans` in the same session, which means plan generation inherits the parent (usually Opus). Plan generation is mostly mechanical (locked design → TDD steps + code blocks) and should run on Sonnet. Add this to the step 4 args:
 
 ```
-...design/plan instructions as above...
-
-When you transition to writing-plans, save the plan to:
-openspec/changes/<name>/.superpowers/plan.md
+STOP after writing design.md. Do NOT chain into writing-plans —
+plan generation is dispatched separately on a cheaper model.
 ```
 
-Then do NOT invoke `superpowers:writing-plans` a second time — brainstorming already did it. Just verify the plan file exists at the expected path before moving to step 6.
+Then proceed to Step 5 to dispatch plan writing as its own Task.
 
-## Step 5 — Implementation plan (only if step 4 did not chain)
+## Step 5 — Implementation plan (always run; dispatched on Sonnet)
 
-Run this step only if `.superpowers/plan.md` is still missing after step 4 completes (e.g., brainstorming was interrupted before handing off). Otherwise skip.
-
-Invoke **superpowers:writing-plans** with:
+Dispatch `superpowers:writing-plans` inside a fresh `Task` with `model: sonnet` so plan generation does not burn Opus tokens. The subagent gets only the design + specs as context — not your conversation history.
 
 ```
-Save plan to: openspec/changes/<name>/.superpowers/plan.md
+Task(
+  subagent_type: "general-purpose",
+  model: "sonnet",
+  description: "Write implementation plan",
+  prompt: """
+    Invoke superpowers:writing-plans to produce the implementation plan.
+
+    Inputs (read these first, do not ask the user):
+    - openspec/changes/<name>/specs/        (locked requirements)
+    - openspec/changes/<name>/.superpowers/design.md  (locked technical design)
+
+    The WHAT and the HOW are both already decided. Your job is purely
+    to translate the design into bite-sized TDD tasks with concrete
+    code blocks per the writing-plans skill.
+
+    Save plan to: openspec/changes/<name>/.superpowers/plan.md
+
+    Return: path to the saved plan and the task count.
+  """
+)
 ```
+
+**Hard override:** if the design contains genuinely novel architecture (no precedent in repo, new concurrency model, new protocol), upgrade plan writing to `model: opus`. Default Sonnet, escalate only on the same signals from the Step 6 Model Triage table.
+
+When announcing the dispatch, state the chosen model: _"Dispatching plan writer on Sonnet (default — design is locked, plan generation is mechanical)."_
 
 ## Step 6 — Execute
 
@@ -235,6 +254,7 @@ If any delegate skill is missing, stop and tell the user which plugin to install
 | Reimplementing a step inline instead of delegating | If a delegate is missing, stop and tell the user. Never reinvent |
 | Skipping state detection and restarting from step 1 | Always run `openspec status --json` first; resume at the right step |
 | Dispatching implementer/spec-reviewer subagents without an explicit `model:` parameter — they silently inherit Opus from the parent | Apply the Model Triage table for every dispatch; Sonnet is the default, Haiku for trivial mechanical tasks, Opus reserved for code-quality review and complex/cross-cutting work |
+| Letting `superpowers:brainstorming` auto-chain into `superpowers:writing-plans` — plan generation runs on Opus by inheritance even though it's mechanical | Tell brainstorming to STOP after design.md (Step 4), then dispatch writing-plans as its own Task on `model: sonnet` (Step 5) |
 
 ## Red Flags — Stop and Recheck
 
@@ -244,5 +264,6 @@ If any delegate skill is missing, stop and tell the user which plugin to install
 - About to write `.superpowers/design.md` outside the change directory.
 - About to dispatch a subagent without an explicit `model:` parameter (silently inherits Opus).
 - About to dispatch the implementer on Opus when no Opus signal from the triage table fired.
+- About to let brainstorming auto-chain into writing-plans (plan generation will inherit Opus). Step 4 must end at design.md; Step 5 dispatches plan writing on Sonnet.
 
 All of these mean: stop, re-read this skill, and resume at the correct step.
