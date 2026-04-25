@@ -138,13 +138,45 @@ Save plan to: openspec/changes/<name>/.superpowers/plan.md
 
 ## Step 6 — Execute
 
-Invoke **superpowers:subagent-driven-development** with the plan path:
+Invoke **superpowers:subagent-driven-development** with the plan path AND the model-triage preset below:
 
 ```
 Plan file: openspec/changes/<name>/.superpowers/plan.md
+
+Apply the Model Triage rules from chaining-openspec-superpowers when
+dispatching each subagent. Pass the chosen model explicitly via the
+Task tool's `model:` parameter — do NOT inherit from the parent.
+Never default to Opus for implementer or spec-reviewer roles.
 ```
 
-The subagent-driven-development skill will then dispatch fresh subagents per task with its own two-stage review.
+The subagent-driven-development skill will then dispatch fresh subagents per task with its own two-stage review, but each `Task` call MUST include an explicit `model:` per the triage rules below.
+
+### Model Triage
+
+Default to **Sonnet** for implementers. Use the signal table to move up to Opus or down to Haiku. Score each signal, then apply the dominance rule.
+
+| Signal | Lean Haiku | Lean Sonnet | Lean Opus |
+|---|---|---|---|
+| **Spec clarity** | Acceptance criteria concrete and testable | Some interpretation needed | Ambiguous, design judgment required |
+| **File scope** | 1 file, isolated | 2–4 files, known boundaries | Cross-cutting, unknown blast radius |
+| **Pattern reuse** | Mirrors existing pattern in codebase | Adapts a pattern with small variations | New pattern, no precedent |
+| **External knowledge** | Stdlib / well-known idioms only | Familiar framework APIs | Unfamiliar library, protocol, or domain |
+| **Failure cost** | Local — wrong code obvious in tests | Moderate — could leak through review | High — security, data loss, concurrency |
+| **State/concurrency** | Pure functions, no I/O | Sync I/O, simple state | Async, locks, ordering, distributed |
+| **Test type** | Unit tests obvious from spec | Some integration setup | Tests themselves require design |
+
+**Dominance rule (not averaging):**
+- All signals lean Haiku → **Haiku** (`model: haiku`)
+- Any signal leans Opus → **Opus** (`model: opus`)
+- Otherwise → **Sonnet** (`model: sonnet`)
+
+**Hard overrides (these win regardless of signals):**
+- **Spec compliance reviewer → always `model: sonnet`** (verification, not generation)
+- **Code quality reviewer → always `model: opus`** (deep judgment pays off here)
+- **Final whole-implementation reviewer → always `model: opus`**
+- **Implementer returns `BLOCKED` for reasoning reasons → upgrade one tier (haiku→sonnet, sonnet→opus) and re-dispatch.** A `BLOCKED` for missing context is NOT a tier upgrade — provide context and re-dispatch with the same model.
+
+**When announcing a dispatch, state the chosen model and the dominant signal that drove it**, e.g. _"Dispatching implementer for Task 3 on Sonnet (default — multi-file integration, no Opus signals)."_ This makes triage decisions auditable.
 
 ## Step 7 — Archive
 
@@ -202,6 +234,7 @@ If any delegate skill is missing, stop and tell the user which plugin to install
 | Archiving a `spec-driven` change without writing the stub pointers | Check schema first. If not `openspec-superpowers`, write the stubs |
 | Reimplementing a step inline instead of delegating | If a delegate is missing, stop and tell the user. Never reinvent |
 | Skipping state detection and restarting from step 1 | Always run `openspec status --json` first; resume at the right step |
+| Dispatching implementer/spec-reviewer subagents without an explicit `model:` parameter — they silently inherit Opus from the parent | Apply the Model Triage table for every dispatch; Sonnet is the default, Haiku for trivial mechanical tasks, Opus reserved for code-quality review and complex/cross-cutting work |
 
 ## Red Flags — Stop and Recheck
 
@@ -209,5 +242,7 @@ If any delegate skill is missing, stop and tell the user which plugin to install
 - About to call step 4 without reading `openspec/changes/<name>/specs/` yourself.
 - About to ask brainstorming requirements-gathering questions when specs already exist.
 - About to write `.superpowers/design.md` outside the change directory.
+- About to dispatch a subagent without an explicit `model:` parameter (silently inherits Opus).
+- About to dispatch the implementer on Opus when no Opus signal from the triage table fired.
 
 All of these mean: stop, re-read this skill, and resume at the correct step.
