@@ -31,6 +31,7 @@ Always run state detection first and tell the user where you're starting.
 ## Orchestration
 
 ```
+0. Prerequisites (install missing dependencies)
 1. Setup (first-run per project)
 2. Create change
 3. Fill proposal + specs (HARD GATE: openspec validate)
@@ -40,9 +41,25 @@ Always run state detection first and tell the user where you're starting.
 7. Archive
 ```
 
+## Step 0 — Prerequisites
+
+The plugin's `SessionStart` hook (`hooks/check-deps.sh`) already nags the user about missing `openspec` CLI / `superpowers` plugin at session start. So just verify here:
+
+```bash
+command -v openspec >/dev/null && [ -d .claude/skills/openspec-new-change ]
+```
+
+If `openspec` CLI present but project skills missing, run:
+
+```bash
+openspec init --tools claude
+```
+
+If anything else missing, point user to the SessionStart hook output. Do not proceed to Step 1 until all green.
+
 ## State Detection
 
-Always run this before taking any action:
+Run after Step 0 passes. Always run this before taking any orchestration action:
 
 1. If no `<change-name>` argument: ask the user which change (or that they want to start a new one).
 2. If change directory does not exist → go to step 1 (setup) then step 2 (create).
@@ -111,6 +128,11 @@ the WHAT is locked. Focus exclusively on the HOW: technical design,
 architecture, components, data flow, testing strategy.
 
 Save the design to: openspec/changes/<name>/.superpowers/design.md
+
+Write the design in normal prose. DO NOT apply caveman/compression —
+the design is the human review artifact and must stay thorough,
+comprehensive, and explanatory. Diagrams, trade-off discussion, and
+rationale all belong here.
 ```
 
 Create the `.superpowers/` directory if it doesn't exist.
@@ -146,10 +168,20 @@ Task(
 
     Save plan to: openspec/changes/<name>/.superpowers/plan.md
 
-    Return: path to the saved plan and the task count.
+    WRITE STYLE — terse/compressed (independent of caveman plugin presence):
+    - Drop articles (a/an/the), filler (just/really/basically), pleasantries.
+    - Fragments OK. Pattern: "[file] [action] [reason]." per task line.
+    - Keep all code blocks, file paths, function names, error strings VERBATIM.
+    - Keep TDD structure (red/green/refactor) and acceptance checkboxes.
+    - No prose summaries between tasks. No restating the design.
+    - Goal: every line is actionable. Zero filler.
+
+    Return: ONLY the path to the saved plan and task count. No prose summary.
   """
 )
 ```
+
+After the subagent returns, IF the caveman plugin is installed (`[ -d ~/.claude/plugins/cache/caveman ]`), run `/caveman:compress openspec/changes/<name>/.superpowers/plan.md` as a safety net — strips any leftover filler the subagent didn't catch. Backup auto-saved at `plan.original.md`. Skip silently if caveman not installed.
 
 **Hard override:** if the design contains genuinely novel architecture (no precedent in repo, new concurrency model, new protocol), upgrade plan writing to `model: opus`. Default Sonnet, escalate only on the same signals from the Step 6 Model Triage table.
 
@@ -232,6 +264,13 @@ Only write the stubs if the files do not already exist. Then:
 openspec archive <name>
 ```
 
+## Output Discipline
+
+- **Design.md** = thorough prose. User reviews this.
+- **Plan.md** = caveman-compressed, actionable lines only.
+- **End-of-orchestration summary** = SKIP. User reads ticked tasks in plan.md. Output at most one line: `Archived <name>. <N> tasks done. Plan: <path>.`
+- Per-step status updates during run = one terse line each (e.g. `Step 4 done. Design at <path>.`).
+
 ## Delegation Reference
 
 | Step | Delegate skill | Must be present |
@@ -242,7 +281,7 @@ openspec archive <name>
 | 5 | `superpowers:writing-plans` | superpowers plugin |
 | 6 | `superpowers:subagent-driven-development` | superpowers plugin |
 
-If any delegate skill is missing, stop and tell the user which plugin to install. Do not try to recreate the step inline.
+If any delegate skill is missing, jump back to Step 0 and surface the install commands. Do not try to recreate the step inline.
 
 ## Common Mistakes
 

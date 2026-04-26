@@ -5,5 +5,19 @@
   "author": {
     "name": "Robert"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/check-deps.sh\"",
+            "timeout": 10,
+            "statusMessage": "Checking chaining-openspec-superpowers deps..."
+          }
+        ]
+      }
+    ]
+  }
 }
