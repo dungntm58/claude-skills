@@ -35,8 +35,8 @@ Always run state detection first and tell the user where you're starting.
 1. Setup (first-run per project)
 2. Create change
 3. Fill proposal + specs (HARD GATE: openspec validate)
-4. Technical design (superpowers:brainstorming, design only)
-5. Implementation plan (superpowers:writing-plans)
+4. Technical design (superpowers:brainstorming, design only) (HARD GATE: user reviews design.md)
+5. Implementation plan (superpowers:writing-plans) (HARD GATE: user reviews plan.md)
 6. Execute (superpowers:subagent-driven-development)
 7. Archive
 ```
@@ -74,8 +74,8 @@ Resume at the first incomplete step:
 | specs/ missing/incomplete | Step 3 |
 | `openspec validate <name>` fails | **HARD GATE — stop, surface errors, do not proceed** |
 | `.superpowers/design.md` missing | Step 4 |
-| `.superpowers/plan.md` missing | Step 5 |
-| Plan tasks incomplete | Step 6 |
+| `.superpowers/plan.md` missing | Step 5 — confirm design was reviewed first |
+| Plan tasks incomplete | Step 6 — confirm plan was reviewed first |
 | All tasks complete, not archived | Step 7 |
 | Archived | Nothing to do |
 
@@ -144,9 +144,15 @@ STOP after writing design.md. Do NOT chain into writing-plans —
 plan generation is dispatched separately on a cheaper model.
 ```
 
-Then proceed to Step 5 to dispatch plan writing as its own Task.
+**HARD GATE — design review.** After design.md is written, STOP. Do NOT proceed to Step 5. Tell the user:
 
-## Step 5 — Implementation plan (always run; dispatched on Sonnet)
+> "Design written to `openspec/changes/<name>/.superpowers/design.md`. Review it. Reply to approve, or give changes. Plan generation waits for your go-ahead."
+
+The user needs time to read the design — it is the human review artifact. Only proceed to Step 5 after the user explicitly approves. If they request changes, revise design.md and re-surface the gate. Do not interpret silence, a new unrelated message, or "looks fine" mid-sentence as approval — wait for a clear go-ahead.
+
+## Step 5 — Implementation plan (dispatched on Sonnet; only after design approved)
+
+**Precondition:** the Step 4 design-review gate passed — the user explicitly approved design.md. If resuming in a fresh session at this step (design.md exists, plan.md missing), confirm with the user that the design was reviewed before dispatching. Do not auto-run.
 
 Dispatch `superpowers:writing-plans` inside a fresh `Task` with `model: sonnet` so plan generation does not burn Opus tokens. The subagent gets only the design + specs as context — not your conversation history.
 
@@ -187,7 +193,15 @@ After the subagent returns, IF the caveman plugin is installed (`[ -d ~/.claude/
 
 When announcing the dispatch, state the chosen model: _"Dispatching plan writer on Sonnet (default — design is locked, plan generation is mechanical)."_
 
-## Step 6 — Execute
+**HARD GATE — plan review.** After plan.md is written (and compressed, if caveman installed), STOP. Do NOT proceed to Step 6. Tell the user:
+
+> "Plan written to `openspec/changes/<name>/.superpowers/plan.md` — <N> tasks. Review it. Reply to approve, or give changes. Execution waits for your go-ahead."
+
+The user needs time to read the plan before subagents start writing code. Only proceed to Step 6 after the user explicitly approves. If they request changes, revise plan.md (or re-dispatch the plan writer) and re-surface the gate. Do not interpret silence or an unrelated message as approval — wait for a clear go-ahead.
+
+## Step 6 — Execute (only after plan approved)
+
+**Precondition:** the Step 5 plan-review gate passed — the user explicitly approved plan.md. If resuming in a fresh session at this step (plan.md exists, tasks incomplete), confirm with the user that the plan was reviewed before dispatching. Do not auto-run.
 
 Invoke **superpowers:subagent-driven-development** with the plan path AND the model-triage preset below:
 
@@ -294,6 +308,8 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Skipping state detection and restarting from step 1 | Always run `openspec status --json` first; resume at the right step |
 | Dispatching implementer/spec-reviewer subagents without an explicit `model:` parameter — they silently inherit Opus from the parent | Apply the Model Triage table for every dispatch; Sonnet is the default, Haiku for trivial mechanical tasks, Opus reserved for code-quality review and complex/cross-cutting work |
 | Letting `superpowers:brainstorming` auto-chain into `superpowers:writing-plans` — plan generation runs on Opus by inheritance even though it's mechanical | Tell brainstorming to STOP after design.md (Step 4), then dispatch writing-plans as its own Task on `model: sonnet` (Step 5) |
+| Dispatching Step 5 right after design.md is written — user never got to review the design | Step 4 ends at a HARD GATE. Stop, ask the user to review design.md, wait for explicit approval before Step 5 |
+| Dispatching Step 6 right after plan.md is written — user never got to review the plan | Step 5 ends at a HARD GATE. Stop, ask the user to review plan.md, wait for explicit approval before Step 6 |
 
 ## Red Flags — Stop and Recheck
 
@@ -304,5 +320,7 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 - About to dispatch a subagent without an explicit `model:` parameter (silently inherits Opus).
 - About to dispatch the implementer on Opus when no Opus signal from the triage table fired.
 - About to let brainstorming auto-chain into writing-plans (plan generation will inherit Opus). Step 4 must end at design.md; Step 5 dispatches plan writing on Sonnet.
+- About to dispatch Step 5 without an explicit user approval of design.md. Step 4 ends at a HARD GATE — the user must review the design first.
+- About to dispatch Step 6 without an explicit user approval of plan.md. Step 5 ends at a HARD GATE — the user must review the plan first.
 
 All of these mean: stop, re-read this skill, and resume at the correct step.
