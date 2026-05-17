@@ -174,15 +174,74 @@ Task(
 
     Save plan to: openspec/changes/<name>/.superpowers/plan.md
 
+    TASK GRANULARITY OVERRIDE — coarser than writing-plans default:
+    writing-plans Task Structure already groups red/green/commit as
+    STEPS inside one Task. Problem is Task scope itself runs too narrow
+    (one function, one test case). OVERRIDE Task scope here.
+
+    - One Task = one cohesive business requirement / capability /
+      vertical slice — what a reviewer would PR-review as a unit.
+    - A Task MAY touch multiple files when one requirement spans them.
+      Use the writing-plans `Files:` block (Create / Modify / Test) to
+      list every file in scope. Do not split a requirement across
+      Tasks just because it touches >1 file.
+
+      SCOPE EXAMPLE — right altitude per writing-plans Task Structure
+      (Files: block uses Create/Modify/Test verbatim; signatures + test
+      cases live inside Step code blocks, NOT in Files annotations):
+
+      ### Task 3: User can reset password via email link
+
+      **Files:**
+        - Create: `src/services/PasswordResetService.ts`
+        - Create: `src/routes/auth/reset-password.ts`
+        - Create: `src/emails/password-reset.tsx`
+        - Create: `db/migrations/0042_password_reset_tokens.sql`
+        - Modify: `src/services/AuthService.ts:142-158`
+        - Modify: `src/routes/index.ts:28`
+        - Test: `tests/routes/auth/reset-password.test.ts`
+
+      Steps follow writing-plans Task Structure (test-first, minimal
+      impl, run, commit). All function signatures, SQL DDL, route
+      payloads, and the 3 test cases (happy path, expired token → 410,
+      invalid email → 404) live VERBATIM inside their Step code
+      blocks. No placeholders.
+
+      Right altitude: one requirement, every touched file enumerated,
+      concrete code lands in Steps. Subagent has no room to improvise
+      scope OR signatures.
+
+      WRONG — too abstract (subagent deviates):
+        ### Task 3: Implement password reset feature
+        Files: src/auth/*, tests/*
+        Steps: add password reset functionality
+
+      WRONG — too granular (original problem returns):
+        ### Task 3: Add generateToken() to PasswordResetService
+        ### Task 4: Add verifyToken() to PasswordResetService
+        ### Task 5: Add POST /auth/reset-password route
+        ### Task 6: Add password reset email template
+        (collapse into one Task)
+    - A Task MAY contain multiple related test cases + their
+      implementation together. Group tests by requirement, not 1:1
+      with Tasks.
+    - Target: 1 Task per spec capability (the `## Requirement` blocks
+      in openspec/changes/<name>/specs/). If you emit >2 Tasks per
+      requirement, you are over-decomposing — merge.
+    - Implementer subagent should be able to finish a Task in ~15-30
+      minutes wall clock.
+    - Still NO placeholders, NO "TBD", full code blocks required for
+      every file touched.
+
     WRITE STYLE — terse/compressed (independent of caveman plugin presence):
     - Drop articles (a/an/the), filler (just/really/basically), pleasantries.
     - Fragments OK. Pattern: "[file] [action] [reason]." per task line.
     - Keep all code blocks, file paths, function names, error strings VERBATIM.
-    - Keep TDD structure (red/green/refactor) and acceptance checkboxes.
-    - No prose summaries between tasks. No restating the design.
+    - Keep TDD discipline (test-first) and acceptance checkboxes per Task.
+    - No prose summaries between Tasks. No restating the design.
     - Goal: every line is actionable. Zero filler.
 
-    Return: ONLY the path to the saved plan and task count. No prose summary.
+    Return: ONLY the path to the saved plan and Task count. No prose summary.
   """
 )
 ```
@@ -310,6 +369,7 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Letting `superpowers:brainstorming` auto-chain into `superpowers:writing-plans` — plan generation runs on Opus by inheritance even though it's mechanical | Tell brainstorming to STOP after design.md (Step 4), then dispatch writing-plans as its own Task on `model: sonnet` (Step 5) |
 | Dispatching Step 5 right after design.md is written — user never got to review the design | Step 4 ends at a HARD GATE. Stop, ask the user to review design.md, wait for explicit approval before Step 5 |
 | Dispatching Step 6 right after plan.md is written — user never got to review the plan | Step 5 ends at a HARD GATE. Stop, ask the user to review plan.md, wait for explicit approval before Step 6 |
+| Letting writing-plans scope each Task to a single function / single test case — many tiny Tasks, each spinning a fresh subagent, execution drags | Step 5 dispatch prompt MUST include the TASK GRANULARITY OVERRIDE. One Task = one business requirement / vertical slice, may touch multiple files, ~15-30 min subagent runtime, ≤2 Tasks per spec `## Requirement` |
 
 ## Red Flags — Stop and Recheck
 
@@ -322,5 +382,6 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 - About to let brainstorming auto-chain into writing-plans (plan generation will inherit Opus). Step 4 must end at design.md; Step 5 dispatches plan writing on Sonnet.
 - About to dispatch Step 5 without an explicit user approval of design.md. Step 4 ends at a HARD GATE — the user must review the design first.
 - About to dispatch Step 6 without an explicit user approval of plan.md. Step 5 ends at a HARD GATE — the user must review the plan first.
+- About to dispatch Step 5 without the TASK GRANULARITY OVERRIDE in the prompt — writing-plans will produce one Task per 2-5 min atomic action and execution will crawl.
 
 All of these mean: stop, re-read this skill, and resume at the correct step.
