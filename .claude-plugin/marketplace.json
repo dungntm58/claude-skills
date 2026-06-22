@@ -1,0 +1,14 @@
+{
+  "name": "claude-skills",
+  "owner": { "name": "Robert", "url": "https://github.com/dungntm58" },
+  "metadata": {
+    "description": "Personal Claude Code skills, installable as a plugin."
+  },
+  "plugins": [
+    {
+      "name": "claude-skills",
+      "source": "./",
+      "description": "Orchestrates openspec (proposal + specs) with superpowers (design + plan + subagent dispatch) end-to-end."
+    }
+  ]
+}
