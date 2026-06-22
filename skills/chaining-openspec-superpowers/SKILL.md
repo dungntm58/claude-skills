@@ -241,7 +241,20 @@ Task(
     - No prose summaries between Tasks. No restating the design.
     - Goal: every line is actionable. Zero filler.
 
-    Return: ONLY the path to the saved plan and Task count. No prose summary.
+    INCREMENTAL WRITE — MANDATORY (Sonnet output-limit guard):
+    A full plan in one Write blows the Sonnet output token limit and
+    truncates plan.md. Build the file incrementally instead:
+    - First Write: create plan.md with header + any preamble ONLY.
+    - Then ONE Edit-append per Task group (append Task N's full block,
+      then Task N+1, …). One Task per Edit. Never batch all Tasks into
+      one tool call.
+    - Each tool call carries only the chunk it writes — never restate
+      earlier Tasks or the design in a later call.
+    - NEVER echo plan content into your response text. The plan lives in
+      the file, not in your message.
+
+    Return: ONLY the path to the saved plan and Task count. No prose
+    summary. Do NOT echo plan content.
   """
 )
 ```
@@ -370,6 +383,8 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Dispatching Step 5 right after design.md is written — user never got to review the design | Step 4 ends at a HARD GATE. Stop, ask the user to review design.md, wait for explicit approval before Step 5 |
 | Dispatching Step 6 right after plan.md is written — user never got to review the plan | Step 5 ends at a HARD GATE. Stop, ask the user to review plan.md, wait for explicit approval before Step 6 |
 | Letting writing-plans scope each Task to a single function / single test case — many tiny Tasks, each spinning a fresh subagent, execution drags | Step 5 dispatch prompt MUST include the TASK GRANULARITY OVERRIDE. One Task = one business requirement / vertical slice, may touch multiple files, ~15-30 min subagent runtime, ≤2 Tasks per spec `## Requirement` |
+| Step 5 subagent writes the whole plan in one Write — Sonnet hits its output token limit, plan.md truncates mid-Task | Step 5 dispatch prompt MUST include the INCREMENTAL WRITE rule. First Write = header only, then one Edit-append per Task group. Never batch all Tasks into one call |
+| Step 5 subagent echoes plan content back into its response — doubles output, recompounds the limit hit | Return ONLY path + Task count. Plan lives in the file, never in the message |
 
 ## Red Flags — Stop and Recheck
 
@@ -383,5 +398,6 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 - About to dispatch Step 5 without an explicit user approval of design.md. Step 4 ends at a HARD GATE — the user must review the design first.
 - About to dispatch Step 6 without an explicit user approval of plan.md. Step 5 ends at a HARD GATE — the user must review the plan first.
 - About to dispatch Step 5 without the TASK GRANULARITY OVERRIDE in the prompt — writing-plans will produce one Task per 2-5 min atomic action and execution will crawl.
+- About to dispatch Step 5 without the INCREMENTAL WRITE rule in the prompt — the subagent writes the whole plan in one Write, hits Sonnet's output limit, and plan.md truncates.
 
 All of these mean: stop, re-read this skill, and resume at the correct step.
