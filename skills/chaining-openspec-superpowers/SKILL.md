@@ -150,120 +150,77 @@ plan generation is dispatched separately on a cheaper model.
 
 The user needs time to read the design — it is the human review artifact. Only proceed to Step 5 after the user explicitly approves. If they request changes, revise design.md and re-surface the gate. Do not interpret silence, a new unrelated message, or "looks fine" mid-sentence as approval — wait for a clear go-ahead.
 
-## Step 5 — Implementation plan (dispatched on Sonnet; only after design approved)
+## Step 5 — Implementation plan (threshold fan-out; only after design approved)
 
 **Precondition:** the Step 4 design-review gate passed — the user explicitly approved design.md. If resuming in a fresh session at this step (design.md exists, plan.md missing), confirm with the user that the design was reviewed before dispatching. Do not auto-run.
 
-Dispatch `superpowers:writing-plans` inside a fresh `Task` with `model: sonnet` so plan generation does not burn Opus tokens. The subagent gets only the design + specs as context — not your conversation history.
+### 5.0 — Decide fan-out width
 
-```
-Task(
-  subagent_type: "general-purpose",
-  model: "sonnet",
-  description: "Write implementation plan",
-  prompt: """
-    Invoke superpowers:writing-plans to produce the implementation plan.
+Plan-writing scales with scope. One sonnet writer for a large plan risks output-limit truncation (hence the incremental-write guard) and runs serial. Above a threshold, fan out by spec requirement and stitch the parts.
 
-    Inputs (read these first, do not ask the user):
-    - openspec/changes/<name>/specs/        (locked requirements)
-    - openspec/changes/<name>/.superpowers/design.md  (locked technical design)
+Count spec capabilities — the `## Requirement` blocks:
 
-    The WHAT and the HOW are both already decided. Your job is purely
-    to translate the design into bite-sized TDD tasks with concrete
-    code blocks per the writing-plans skill.
-
-    Save plan to: openspec/changes/<name>/.superpowers/plan.md
-
-    TASK GRANULARITY OVERRIDE — coarser than writing-plans default:
-    writing-plans Task Structure already groups red/green/commit as
-    STEPS inside one Task. Problem is Task scope itself runs too narrow
-    (one function, one test case). OVERRIDE Task scope here.
-
-    - One Task = one cohesive business requirement / capability /
-      vertical slice — what a reviewer would PR-review as a unit.
-    - A Task MAY touch multiple files when one requirement spans them.
-      Use the writing-plans `Files:` block (Create / Modify / Test) to
-      list every file in scope. Do not split a requirement across
-      Tasks just because it touches >1 file.
-
-      SCOPE EXAMPLE — right altitude per writing-plans Task Structure
-      (Files: block uses Create/Modify/Test verbatim; signatures + test
-      cases live inside Step code blocks, NOT in Files annotations):
-
-      ### Task 3: User can reset password via email link
-
-      **Files:**
-        - Create: `src/services/PasswordResetService.ts`
-        - Create: `src/routes/auth/reset-password.ts`
-        - Create: `src/emails/password-reset.tsx`
-        - Create: `db/migrations/0042_password_reset_tokens.sql`
-        - Modify: `src/services/AuthService.ts:142-158`
-        - Modify: `src/routes/index.ts:28`
-        - Test: `tests/routes/auth/reset-password.test.ts`
-
-      Steps follow writing-plans Task Structure (test-first, minimal
-      impl, run, commit). All function signatures, SQL DDL, route
-      payloads, and the 3 test cases (happy path, expired token → 410,
-      invalid email → 404) live VERBATIM inside their Step code
-      blocks. No placeholders.
-
-      Right altitude: one requirement, every touched file enumerated,
-      concrete code lands in Steps. Subagent has no room to improvise
-      scope OR signatures.
-
-      WRONG — too abstract (subagent deviates):
-        ### Task 3: Implement password reset feature
-        Files: src/auth/*, tests/*
-        Steps: add password reset functionality
-
-      WRONG — too granular (original problem returns):
-        ### Task 3: Add generateToken() to PasswordResetService
-        ### Task 4: Add verifyToken() to PasswordResetService
-        ### Task 5: Add POST /auth/reset-password route
-        ### Task 6: Add password reset email template
-        (collapse into one Task)
-    - A Task MAY contain multiple related test cases + their
-      implementation together. Group tests by requirement, not 1:1
-      with Tasks.
-    - Target: 1 Task per spec capability (the `## Requirement` blocks
-      in openspec/changes/<name>/specs/). If you emit >2 Tasks per
-      requirement, you are over-decomposing — merge.
-    - Implementer subagent should be able to finish a Task in ~15-30
-      minutes wall clock.
-    - Still NO placeholders, NO "TBD", full code blocks required for
-      every file touched.
-
-    WRITE STYLE — terse/compressed (independent of caveman plugin presence):
-    - Drop articles (a/an/the), filler (just/really/basically), pleasantries.
-    - Fragments OK. Pattern: "[file] [action] [reason]." per task line.
-    - Keep all code blocks, file paths, function names, error strings VERBATIM.
-    - Keep TDD discipline (test-first) and acceptance checkboxes per Task.
-    - No prose summaries between Tasks. No restating the design.
-    - Goal: every line is actionable. Zero filler.
-
-    INCREMENTAL WRITE — MANDATORY (Sonnet output-limit guard):
-    A full plan in one Write blows the Sonnet output token limit and
-    truncates plan.md. Build the file incrementally instead:
-    - First Write: create plan.md with header + any preamble ONLY.
-    - Then ONE Edit-append per Task group (append Task N's full block,
-      then Task N+1, …). One Task per Edit. Never batch all Tasks into
-      one tool call.
-    - Each tool call carries only the chunk it writes — never restate
-      earlier Tasks or the design in a later call.
-    - NEVER echo plan content into your response text. The plan lives in
-      the file, not in your message.
-
-    Return: ONLY the path to the saved plan and Task count. No prose
-    summary. Do NOT echo plan content.
-  """
-)
+```bash
+grep -rc '^## Requirement' openspec/changes/<name>/specs/ | awk -F: '{s+=$2} END {print s}'
 ```
 
-After the subagent returns, IF the caveman plugin is installed (`[ -d ~/.claude/plugins/cache/caveman ]`), run `/caveman:compress openspec/changes/<name>/.superpowers/plan.md` as a safety net — strips any leftover filler the subagent didn't catch. Backup auto-saved at `plan.original.md`. Skip silently if caveman not installed.
+Let `R` = that count.
 
-**Hard override:** if the design contains genuinely novel architecture (no precedent in repo, new concurrency model, new protocol), upgrade plan writing to `model: opus`. Default Sonnet, escalate only on the same signals from the Step 6 Model Triage table.
+| `R` | Path | Why |
+|---|---|---|
+| ≤ 3 | **5.A single writer** | Fan-out overhead (part files + stitch) exceeds the gain; one writer is already coherent. |
+| > 3 | **5.B fan-out + stitch** | Parallelize by requirement, per-chunk model triage, then a stitch pass restores global coherence. |
+
+Announce path + width before dispatching, e.g. _"5 requirements → fan-out: 1 plan-writer per requirement + stitch."_
+
+### 5.A — Single writer (R ≤ 3)
+
+Dispatch `superpowers:writing-plans` in a fresh `Task` with `model: sonnet` (design + specs as context, not your conversation history). **Use the 5.A dispatch template in `references/step5-dispatch.md`.**
+
+The template enforces these rules — keep them whatever you do:
+- **Granularity:** 1 Task = 1 spec `## Requirement` / vertical slice; MAY touch many files via the `Files:` block (Create/Modify/Test); ≤2 Tasks per requirement; ~15–30 min subagent runtime. Worked right/wrong example in the reference file.
+- **Terse write-style**, **NO placeholders / "TBD"**, **full code blocks** for every file touched (signatures, DDL, payloads, test cases verbatim inside Step blocks).
+- **Incremental write** (Sonnet output-limit guard): first Write = header only, then one Edit-append per Task. Never one big Write. Never echo plan content.
+- Return path + Task count only.
+
+**Hard override (5.A):** if the design contains genuinely novel architecture (no precedent in repo, new concurrency model, new protocol), upgrade plan writing to `model: opus`. Default Sonnet, escalate only on the same signals from the Step 6 Model Triage table.
 
 When announcing the dispatch, state the chosen model: _"Dispatching plan writer on Sonnet (default — design is locked, plan generation is mechanical)."_
+
+### 5.B — Fan-out + stitch (R > 3)
+
+Three stages: optional foundations Task → per-requirement fan-out → stitch.
+
+**Output-isolation rule (non-negotiable):** every writer writes its OWN file `openspec/changes/<name>/.superpowers/plan-part-NN.md`. NEVER point two subagents at the same file — concurrent Edit-append clobbers. Only the Stage-3 stitch writer touches the final `plan.md`.
+
+**Stage 1 — Foundations (skip if no shared scaffolding).** If the design has shared schema / shared services / shared types that multiple requirements depend on, dispatch ONE subagent to write them → `plan-part-00.md`, using the **5.B Stage-2 template in `references/step5-dispatch.md`** with "this requirement" replaced by "the shared scaffolding named in design.md."
+
+- **Scope of Task 0 = the shared SHELL only:** schema/migrations, the shared service-class skeleton (constructor + shared private helpers), shared types. It does NOT write per-requirement methods — each requirement writer ADDS its own methods to the shared class via a `Files: Modify` entry, and Stage 3 reconciles the overlapping Modifies.
+- **Model:** default `sonnet` (scaffolding is mechanical); `opus` only if the shared layer itself is the novel-concurrency piece — including concurrency-specific DDL in the shared schema (idempotency keys, lock columns) — score via the Step 6 table. Announce the model.
+- **Then wait for Stage 1 to return. Read `plan-part-00.md`; its `Files: Create` paths ARE the shared-files list you paste into every Stage-2 prompt.**
+
+No shared scaffolding → skip Stage 1 and pass "none" as the shared-files list.
+
+**Stage 2 — Per-requirement fan-out.** One subagent per `## Requirement`, all dispatched in a single message (parallel). For each:
+
+- **Model:** score the requirement against the Step 6 Model Triage table → haiku / sonnet / opus. This per-chunk triage replaces 5.A's all-or-nothing override — novel architecture flagged in design.md is already captured here (the table's "new pattern, no precedent" and "async/locks/ordering" rows push that requirement to opus), so no separate 5.A override is needed in 5.B. Announce model + dominant signal per requirement.
+- **Context:** full specs + full design.md + the shared-files list from Stage 1 (so the writer references those files, never redefines them).
+- **Output:** ONLY this requirement's Task block → `plan-part-NN.md`. `NN` = spec order, zero-padded, starting at `01` (foundations owns `00` when present; requirement numbering is unaffected by whether Stage 1 ran). Local heading `### Task: <requirement title>` — NO global number; the stitch pass assigns numbers.
+- Reuse 5.A's content rules: granularity (1 Task per requirement, may touch many files via the `Files:` block), terse write-style, NO placeholders, full code blocks, return path only. The write *mechanic* differs (one part file, per the template) — do NOT carry over 5.A's plan.md header / incremental-append sequence.
+
+**Use the 5.B Stage-2 template in `references/step5-dispatch.md`** (also the basis for the Stage-1 foundations dispatch).
+
+**Stage 3 — Stitch (always, after all parts return).** Before dispatching, re-read design.md for concurrency / shared-state flags → pick the stitch model: `sonnet` default, `opus` if flagged (reconciliation is judgment). Announce it. Then dispatch ONE subagent (**5.B Stage-3 template in `references/step5-dispatch.md`**) to assemble the final plan. The stitch writer:
+- Orders Tasks: foundations (part-00) first, then requirements in dependency order per the design.
+- Renumbers Tasks globally 1..N.
+- **RECONCILES shared-file conflicts** — two parts Modify the same file at overlapping ranges → merge or sequence + note the dependency. This is the coherence guard; do not skip.
+- Keeps all code/paths/signatures/error-strings VERBATIM; incremental write (header then one Edit-append per Task); deletes `plan-part-*.md` when done.
+
+After Stage 3, run the caveman compress safety net (below) on the final `plan.md`.
+
+### Both paths — compress safety net
+
+After the plan writer (5.A) or the stitch pass (5.B) returns, IF the caveman plugin is installed (`[ -d ~/.claude/plugins/cache/caveman ]`), run `/caveman:compress openspec/changes/<name>/.superpowers/plan.md` — strips any leftover filler. Backup auto-saved at `plan.original.md`. Skip silently if caveman not installed.
 
 **HARD GATE — plan review.** After plan.md is written (and compressed, if caveman installed), STOP. Do NOT proceed to Step 6. Tell the user:
 
@@ -385,6 +342,11 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Letting writing-plans scope each Task to a single function / single test case — many tiny Tasks, each spinning a fresh subagent, execution drags | Step 5 dispatch prompt MUST include the TASK GRANULARITY OVERRIDE. One Task = one business requirement / vertical slice, may touch multiple files, ~15-30 min subagent runtime, ≤2 Tasks per spec `## Requirement` |
 | Step 5 subagent writes the whole plan in one Write — Sonnet hits its output token limit, plan.md truncates mid-Task | Step 5 dispatch prompt MUST include the INCREMENTAL WRITE rule. First Write = header only, then one Edit-append per Task group. Never batch all Tasks into one call |
 | Step 5 subagent echoes plan content back into its response — doubles output, recompounds the limit hit | Return ONLY path + Task count. Plan lives in the file, never in the message |
+| Large scope (R>3) written by one sonnet subagent — truncates / drags serially | Run Step 5.0 first: count `## Requirement`. R>3 → fan out (5.B). R≤3 → single writer (5.A) |
+| Fan-out (5.B) points >1 subagent at the same `plan.md` — concurrent Edit-append clobbers | Each writer owns its own `plan-part-NN.md`. Only the Stage-3 stitch writer touches `plan.md` |
+| Fan-out finishes without a stitch pass — duplicate/local Task numbers, unreconciled shared-file edits | Stage 3 stitch is mandatory: global renumber + dependency order + shared-file conflict reconcile |
+| Every fan-out chunk dispatched on sonnet — per-chunk triage ignored | Score each requirement against the Step 6 Model Triage table; haiku/sonnet/opus per requirement |
+| Fanned out below threshold (R≤3) — stitch overhead, no gain | Use 5.A single writer. Fan-out only pays above R>3 |
 
 ## Red Flags — Stop and Recheck
 
@@ -399,5 +361,9 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 - About to dispatch Step 6 without an explicit user approval of plan.md. Step 5 ends at a HARD GATE — the user must review the plan first.
 - About to dispatch Step 5 without the TASK GRANULARITY OVERRIDE in the prompt — writing-plans will produce one Task per 2-5 min atomic action and execution will crawl.
 - About to dispatch Step 5 without the INCREMENTAL WRITE rule in the prompt — the subagent writes the whole plan in one Write, hits Sonnet's output limit, and plan.md truncates.
+- About to dispatch Step 5 without first counting `## Requirement` (Step 5.0) — can't pick single-writer vs fan-out path.
+- About to fan out (5.B) pointing more than one subagent at the same `plan.md` — concurrent writes clobber. Each writer owns a `plan-part-NN.md`.
+- About to finish 5.B without the Stage-3 stitch pass — the plan has duplicate Task numbers and unreconciled shared-file edits.
+- About to fan out below the R>3 threshold, or single-write above it — wrong path for the scope.
 
 All of these mean: stop, re-read this skill, and resume at the correct step.
