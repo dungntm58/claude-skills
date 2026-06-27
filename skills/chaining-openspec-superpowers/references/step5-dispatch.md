@@ -6,13 +6,15 @@ these templates enforce live inline in SKILL.md Step 5 — this file is the
 copy-paste reference. Load on demand at dispatch time.
 
 - 5.A single-writer dispatch → use the **5.A template**.
-- 5.B per-requirement fan-out → use the **Stage-2 template** (also the basis
-  for the optional Stage-1 foundations dispatch).
-- 5.B assembly → use the **Stage-3 stitch template**.
+- 5.B per-requirement fan-out → use the **Step-B writer template** (also the
+  basis for the foundations writer in the same parallel batch).
+- 5.B conflict reconcile → use the **Step-C reconcile template** (only when two
+  parts Modify the same file at overlapping ranges; otherwise the coordinator
+  just `cat`s the parts).
 
 ---
 
-## 5.A — Single-writer dispatch template (R ≤ 3)
+## 5.A — Single-writer dispatch template (R ≤ 6)
 
 ```
 Task(
@@ -119,45 +121,53 @@ Task(
 
 ---
 
-## 5.B Stage 2 — Per-requirement writer template (R > 3)
+## 5.B Step B — Per-requirement writer template (R > 6)
 
-Also the basis for the optional **Stage 1 foundations** dispatch: replace
-"this requirement" with "the shared scaffolding named in design.md", write to
-`plan-part-00.md`, and scope it to the shared shell only (see SKILL.md Stage 1).
+All writers go out in ONE parallel message. Also the basis for the
+**foundations writer** (a peer in the same batch, NOT a serial pre-stage):
+replace "this requirement" with "the shared scaffolding named in design.md",
+fix its global number to `1`, write to `plan-part-01.md`, scope to the shared
+shell only (see SKILL.md Step B). The coordinator assigns the global Task
+number and shared-file list inline before dispatching — writers do NOT
+renumber or reorder.
 
 ```
 Task(
   subagent_type: "general-purpose",
-  model: "<haiku|sonnet|opus per triage>",
-  description: "Write plan Task for <requirement>",
+  model: "<haiku|sonnet per triage — NEVER opus>",
+  description: "Write plan Task N for <requirement>",
   prompt: """
     Invoke superpowers:writing-plans and apply its Task Structure to
     EXACTLY this one requirement — produce ONE Task block, no others, no
-    whole-plan preamble/overview, no global numbering. If writing-plans
-    emits more than this requirement's Task, keep only this requirement's
-    block and discard the rest.
+    whole-plan preamble/overview. If writing-plans emits more than this
+    requirement's Task, keep only this requirement's block and discard the
+    rest.
 
     Requirement: "<## Requirement title>" in
       openspec/changes/<name>/specs/<file>
+    Your assigned GLOBAL Task number: <N>   (use it verbatim in the heading;
+      do NOT renumber, the coordinator already fixed dependency order)
 
     Read first (do not ask the user):
     - openspec/changes/<name>/specs/                 (all locked requirements)
     - openspec/changes/<name>/.superpowers/design.md (locked design)
-    Shared files already owned by Task 0 (reference, do NOT redefine):
-    - <list from foundations stage, or "none">
+    Shared files already owned by Task 1 (reference, do NOT redefine):
+    - <shared-file path list from design.md, or "none">
 
-    Emit ONE `### Task: <requirement title>` block per the writing-plans
+    Emit ONE `### Task <N>: <requirement title>` block per the writing-plans
     Task Structure: Files: block (Create/Modify/Test), test-first Steps
     with full code blocks. All signatures, DDL, payloads, test cases
     VERBATIM inside Step code blocks. No placeholders, no "TBD".
+    If you must Modify a shared file owned by Task 1, say so in the Files:
+    block — do NOT redefine its created contents.
 
     Write STYLE — terse: drop articles/filler, fragments OK, keep code
     + paths + names + error strings verbatim, keep TDD + checkboxes.
 
     Write the block to:
       openspec/changes/<name>/.superpowers/plan-part-NN.md
-    (NN = <requirement order, zero-padded>). One Write; if the block is
-    huge, header-Write then Edit-append the Steps. Touch ONLY this file.
+    (NN = your global Task number <N>, zero-padded). One Write; if the block
+    is huge, header-Write then Edit-append the Steps. Touch ONLY this file.
 
     Return: ONLY the file path. Do NOT echo plan content.
   """
@@ -166,35 +176,36 @@ Task(
 
 ---
 
-## 5.B Stage 3 — Stitch template (R > 3)
+## 5.B Step C — Conflict reconcile template (only on overlapping shared Modifies)
+
+Skip this entirely when no two parts Modify the same file at overlapping
+ranges — the coordinator just `cat`s the part files into `plan.md` (they are
+already final-form and globally numbered) and deletes the scratch files. Use
+this ONLY to reconcile the specific conflicting blocks. It edits those blocks
+in place; it NEVER re-emits the whole plan.
 
 ```
 Task(
   subagent_type: "general-purpose",
   model: "<sonnet default | opus if design flagged concurrency/shared state>",
-  description: "Stitch plan parts into plan.md",
+  description: "Reconcile overlapping shared-file Modifies in plan.md",
   prompt: """
-    Assemble the final implementation plan from the part files.
+    plan.md already exists (parts concatenated in global Task order). Two or
+    more Tasks Modify the same file at overlapping ranges. Fix ONLY that.
+
+    Conflicting Tasks: <Task numbers> over file(s): <paths>
 
     Read:
-    - openspec/changes/<name>/.superpowers/plan-part-*.md (all parts)
-    - openspec/changes/<name>/.superpowers/design.md       (dependency order)
-    - openspec/changes/<name>/specs/
+    - openspec/changes/<name>/.superpowers/plan.md   (the assembled plan)
+    - openspec/changes/<name>/.superpowers/design.md (dependency intent)
 
-    Produce openspec/changes/<name>/.superpowers/plan.md:
-    - Order Tasks: foundations (part-00) first, then requirement Tasks in
-      dependency order per the design.
-    - Renumber Tasks globally 1..N (### Task 1, ### Task 2, …).
-    - RECONCILE shared-file conflicts: if two parts Modify the same file at
-      overlapping ranges, merge or sequence them and note the dependency in
-      the dependent Task. This is the coherence guard — do not skip.
-    - Keep ALL code blocks, file paths, signatures, error strings VERBATIM.
-    - INCREMENTAL WRITE: first Write = header only, then one Edit-append per
-      Task. Never batch all Tasks into one call. Never echo plan into your
-      response.
-    - After plan.md is complete, delete the plan-part-*.md scratch files.
+    For each conflict: merge or sequence the overlapping Modify blocks, and
+    note the dependency in the dependent Task ("depends on Task <k>'s edit to
+    <file>"). Keep ALL code blocks, file paths, signatures, error strings
+    VERBATIM. Edit ONLY the conflicting Task blocks — do NOT touch other
+    Tasks, do NOT renumber, do NOT rewrite the whole file.
 
-    Return: ONLY the path to plan.md and the final Task count.
+    Return: ONLY the Task numbers you edited.
   """
 )
 ```
