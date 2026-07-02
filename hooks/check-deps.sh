@@ -24,6 +24,14 @@ if ! find "$claude_dir/plugins/cache" -maxdepth 3 -type d -name caveman 2>/dev/n
   optional_missing+=("caveman-plugin")
 fi
 
+# nano-banana-sprites deps (optional; only warn, never fail)
+if ! python3 -c "import PIL" >/dev/null 2>&1; then
+  echo "nano-banana-sprites: Pillow not installed (pip install Pillow) — needed to pixelize sprites."
+fi
+if [ -z "${GEMINI_API_KEY:-}" ] && [ -z "${GOOGLE_API_KEY:-}" ]; then
+  echo "nano-banana-sprites: set GEMINI_API_KEY or GOOGLE_API_KEY to generate sprites."
+fi
+
 if [ ${#missing[@]} -eq 0 ] && [ ${#optional_missing[@]} -eq 0 ]; then
   exit 0
 fi

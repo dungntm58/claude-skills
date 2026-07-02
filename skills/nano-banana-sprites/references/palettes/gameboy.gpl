@@ -1,0 +1,8 @@
+GIMP Palette
+Name: Game Boy DMG
+Columns: 4
+#
+ 15  56  15	darkest
+ 48  98  48	dark
+139 172  15	light
+155 188  15	lightest

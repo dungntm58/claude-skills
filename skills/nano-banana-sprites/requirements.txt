@@ -1,0 +1,5 @@
+Pillow>=10.0
+
+# Optional: enables the google-genai SDK path. Without it, generation falls
+# back to a raw REST call over the standard library (see lib/client.py).
+google-genai>=0.3
