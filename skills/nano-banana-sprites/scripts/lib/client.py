@@ -8,21 +8,68 @@ import urllib.request
 FLASH = "gemini-3.1-flash-image"   # Nano Banana 2 (default)
 PRO = "gemini-3-pro-image"         # Nano Banana Pro (--pro)
 
+# Project-level key file. A project's .nano-banana.env (found by walking up from
+# the cwd) overrides the global GEMINI_API_KEY / GOOGLE_API_KEY environment.
+DOTFILE = ".nano-banana.env"
+
 
 def model_id(pro=False):
     return PRO if pro else FLASH
 
 
-def resolve_key(env=None):
-    """Return the API key from GEMINI_API_KEY, falling back to GOOGLE_API_KEY.
-    Raises RuntimeError naming both if neither is set."""
+def _find_dotfile(start_dir):
+    """Return the nearest DOTFILE, walking `start_dir` up to the filesystem
+    root, or None if not found."""
+    d = os.path.abspath(start_dir)
+    while True:
+        cand = os.path.join(d, DOTFILE)
+        if os.path.isfile(cand):
+            return cand
+        parent = os.path.dirname(d)
+        if parent == d:
+            return None
+        d = parent
+
+
+def _parse_env_file(path):
+    """Parse a KEY=VALUE dotfile into a dict. Ignores blank lines and
+    `#` comments; tolerates a leading `export ` and surrounding quotes."""
+    values = {}
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            if line.startswith("export "):
+                line = line[len("export "):]
+            k, v = line.split("=", 1)
+            values[k.strip()] = v.strip().strip('"').strip("'")
+    return values
+
+
+def _key_from(source):
+    """First of GEMINI_API_KEY / GOOGLE_API_KEY present in a dict-like source."""
+    return source.get("GEMINI_API_KEY") or source.get("GOOGLE_API_KEY")
+
+
+def resolve_key(env=None, project_dir=None):
+    """Resolve the API key across two levels. A project's `.nano-banana.env`
+    (found by walking `project_dir` — or the cwd — up to the filesystem root)
+    takes precedence over the global environment (GEMINI_API_KEY, then
+    GOOGLE_API_KEY). Raises RuntimeError if neither yields a key."""
     env = os.environ if env is None else env
-    key = env.get("GEMINI_API_KEY") or env.get("GOOGLE_API_KEY")
-    if not key:
-        raise RuntimeError(
-            "No API key found. Set GEMINI_API_KEY or GOOGLE_API_KEY."
-        )
-    return key
+    dotfile = _find_dotfile(project_dir or os.getcwd())
+    if dotfile:
+        key = _key_from(_parse_env_file(dotfile))
+        if key:
+            return key
+    key = _key_from(env)
+    if key:
+        return key
+    raise RuntimeError(
+        "No API key found. Set GEMINI_API_KEY or GOOGLE_API_KEY, or add one to "
+        f"a {DOTFILE} file in your project."
+    )
 
 
 _REST_ENDPOINT = (

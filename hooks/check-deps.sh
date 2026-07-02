@@ -29,7 +29,7 @@ if ! python3 -c "import PIL" >/dev/null 2>&1; then
   echo "nano-banana-sprites: Pillow not installed (pip install Pillow) — needed to pixelize sprites."
 fi
 if [ -z "${GEMINI_API_KEY:-}" ] && [ -z "${GOOGLE_API_KEY:-}" ]; then
-  echo "nano-banana-sprites: set GEMINI_API_KEY or GOOGLE_API_KEY to generate sprites."
+  echo "nano-banana-sprites: no global GEMINI_API_KEY/GOOGLE_API_KEY set — export one, or add a project .nano-banana.env, to generate sprites."
 fi
 
 if [ ${#missing[@]} -eq 0 ] && [ ${#optional_missing[@]} -eq 0 ]; then

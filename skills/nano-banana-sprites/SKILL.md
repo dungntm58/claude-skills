@@ -24,7 +24,14 @@ size/palette with `pixelize.py` without regenerating.
 
 ## Setup
 
-- Set `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) in the environment.
+- Provide an API key at either level:
+  - **Global:** set `GEMINI_API_KEY` (or `GOOGLE_API_KEY`) in the environment.
+  - **Per-project:** put `GEMINI_API_KEY=...` (or `GOOGLE_API_KEY=...`) in a
+    `.nano-banana.env` file in your project. It is discovered by walking up from
+    the current directory to the filesystem root, and **overrides** the global
+    env key. Add `.nano-banana.env` to your project's `.gitignore` — it holds a
+    secret.
+  - Resolution order: project `.nano-banana.env` → global env.
 - Install deps: `pip install -r requirements.txt` (Pillow required; google-genai
   optional — falls back to REST).
 - Run scripts from the skill root with `PYTHONPATH=scripts`.
