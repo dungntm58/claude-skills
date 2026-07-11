@@ -37,8 +37,9 @@ Always run state detection first and tell the user where you're starting.
 3. Fill proposal + specs (HARD GATE: openspec validate)
 4. Technical design (superpowers:brainstorming, design only) (HARD GATE: user reviews design.md)
 5. Implementation plan (superpowers:writing-plans) (HARD GATE: user reviews plan.md)
-6. Execute (superpowers:subagent-driven-development)
-7. Archive
+6. Execute (superpowers:subagent-driven-development — spec-compliance review only)
+7. Simplify (/simplify — one quality/cleanup pass; all requirements implemented)
+8. Archive
 ```
 
 ## Step 0 — Prerequisites
@@ -76,7 +77,7 @@ Resume at the first incomplete step:
 | `.superpowers/design.md` missing | Step 4 |
 | `.superpowers/plan.md` missing | Step 5 — confirm design was reviewed first |
 | Plan tasks incomplete | Step 6 — confirm plan was reviewed first |
-| All tasks complete, not archived | Step 7 |
+| All tasks complete, not simplified/archived | Step 7 (simplify) → Step 8 (archive) |
 | Archived | Nothing to do |
 
 ## Step 1 — Setup (only before creating a new change)
@@ -243,13 +244,17 @@ Invoke **superpowers:subagent-driven-development** with the plan path AND the mo
 ```
 Plan file: openspec/changes/<name>/.superpowers/plan.md
 
+Run spec-compliance review after each task, but SKIP the code-quality
+review stage AND the final whole-implementation reviewer — code quality
+is handled ONCE by /simplify after all tasks (Step 7), never per task.
+
 Apply the Model Triage rules from chaining-openspec-superpowers when
 dispatching each subagent. Pass the chosen model explicitly via the
 Task tool's `model:` parameter — do NOT inherit from the parent.
 Never default to Opus for implementer or spec-reviewer roles.
 ```
 
-The subagent-driven-development skill will then dispatch fresh subagents per task with its own two-stage review, but each `Task` call MUST include an explicit `model:` per the triage rules below.
+The subagent-driven-development skill will then dispatch a fresh implementer per task followed by a **spec-compliance review only** — its per-task code-quality review and its final whole-implementation review are skipped (code quality is the single Step 7 `/simplify` pass). Each `Task` call MUST include an explicit `model:` per the triage rules below.
 
 ### Model Triage
 
@@ -272,13 +277,25 @@ Default to **Sonnet** for implementers. Use the signal table to move up to Opus 
 
 **Hard overrides (these win regardless of signals):**
 - **Spec compliance reviewer → always `model: sonnet`** (verification, not generation)
-- **Code quality reviewer → always `model: opus`** (deep judgment pays off here)
-- **Final whole-implementation reviewer → always `model: opus`**
 - **Implementer returns `BLOCKED` for reasoning reasons → upgrade one tier (haiku→sonnet, sonnet→opus) and re-dispatch.** A `BLOCKED` for missing context is NOT a tier upgrade — provide context and re-dispatch with the same model.
 
 **When announcing a dispatch, state the chosen model and the dominant signal that drove it**, e.g. _"Dispatching implementer for Task 3 on Sonnet (default — multi-file integration, no Opus signals)."_ This makes triage decisions auditable.
 
-## Step 7 — Archive
+## Step 7 — Simplify (one quality pass; only after all requirements implemented)
+
+**Precondition:** every plan task is complete — all openspec requirements implemented, each having passed its per-task spec-compliance review. Do NOT run this mid-implementation.
+
+Invoke the **/simplify** skill ONCE over the whole change:
+
+```
+/simplify
+```
+
+This is the single code-quality / cleanup gate — reuse, simplification, efficiency, altitude — replacing the old per-task code-quality review and the final whole-implementation review. It reviews the accumulated branch diff and applies the fixes.
+
+`/simplify` is quality-only; it does NOT hunt bugs (spec compliance was already verified per task — run `/code-review` separately if you want a correctness sweep). Safe to re-run: a second pass just finds fewer cleanups, so on resume run it regardless. Once it settles, proceed to Step 8.
+
+## Step 8 — Archive
 
 **First: re-run validate.** Specs or artifacts may have drifted during implementation:
 
@@ -329,6 +346,7 @@ openspec archive <name>
 | 4 | `superpowers:brainstorming` | superpowers plugin |
 | 5 | `superpowers:writing-plans` | superpowers plugin |
 | 6 | `superpowers:subagent-driven-development` | superpowers plugin |
+| 7 | `/simplify` | built-in (Claude Code) |
 
 If any delegate skill is missing, jump back to Step 0 and surface the install commands. Do not try to recreate the step inline.
 
@@ -341,7 +359,8 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Archiving a `spec-driven` change without writing the stub pointers | Check schema first. If not `openspec-superpowers`, write the stubs |
 | Reimplementing a step inline instead of delegating | If a delegate is missing, stop and tell the user. Never reinvent |
 | Skipping state detection and restarting from step 1 | Always run `openspec status --json` first; resume at the right step |
-| Dispatching implementer/spec-reviewer subagents without an explicit `model:` parameter — they silently inherit Opus from the parent | Apply the Model Triage table for every dispatch; Sonnet is the default, Haiku for trivial mechanical tasks, Opus reserved for code-quality review and complex/cross-cutting work |
+| Dispatching implementer/spec-reviewer subagents without an explicit `model:` parameter — they silently inherit Opus from the parent | Apply the Model Triage table for every dispatch; Sonnet is the default, Haiku for trivial mechanical tasks, Opus reserved for complex/cross-cutting implementation and the Step-C reconcile |
+| Calling `openspec archive` without running `/simplify` first | Step 7 runs `/simplify` once (the sole quality/cleanup gate) before Step 8 archive |
 | Letting `superpowers:brainstorming` auto-chain into `superpowers:writing-plans` — plan generation runs on Opus by inheritance even though it's mechanical | Tell brainstorming to STOP after design.md (Step 4), then dispatch writing-plans as its own Task on `model: sonnet` (Step 5) |
 | Dispatching Step 5 right after design.md is written — user never got to review the design | Step 4 ends at a HARD GATE. Stop, ask the user to review design.md, wait for explicit approval before Step 5 |
 | Dispatching Step 6 right after plan.md is written — user never got to review the plan | Step 5 ends at a HARD GATE. Stop, ask the user to review plan.md, wait for explicit approval before Step 6 |
@@ -363,6 +382,8 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 - About to write `.superpowers/design.md` outside the change directory.
 - About to dispatch a subagent without an explicit `model:` parameter (silently inherits Opus).
 - About to dispatch the implementer on Opus when no Opus signal from the triage table fired.
+- About to let subagent-driven-development run its per-task code-quality review or its final whole-implementation reviewer — both removed; code quality is the single Step 7 `/simplify` pass.
+- About to call `openspec archive` without running `/simplify` first (Step 7).
 - About to let brainstorming auto-chain into writing-plans (plan generation will inherit Opus). Step 4 must end at design.md; Step 5 dispatches plan writing on Sonnet.
 - About to dispatch Step 5 without an explicit user approval of design.md. Step 4 ends at a HARD GATE — the user must review the design first.
 - About to dispatch Step 6 without an explicit user approval of plan.md. Step 5 ends at a HARD GATE — the user must review the plan first.
