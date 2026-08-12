@@ -157,7 +157,7 @@ The user needs time to read the design — it is the human review artifact. Only
 
 ### 5.0 — Decide fan-out width
 
-Plan-writing scales with scope. One sonnet writer for a large plan risks output-limit truncation (hence the incremental-write guard) and runs serial. Above a threshold, fan out by spec requirement and concatenate the parts.
+Plan-writing scales with scope. One sonnet writer for a large plan risks output-limit truncation (hence the incremental-write guard) and runs serial. Above a threshold, fan out by spec requirement — one sub-plan file per requirement, indexed by `plan.md`.
 
 Count spec capabilities — the `## Requirement` blocks:
 
@@ -170,11 +170,11 @@ Let `R` = that count.
 | `R` | Path | Why |
 |---|---|---|
 | ≤ 6 | **5.A single writer** | One sonnet writer handles ≤6 coarse Tasks without truncation and is already coherent; below this, fan-out coordination outweighs the parallel gain. |
-| > 6 | **5.B fan-out + concat** | Single writer would run long / risk output-limit truncation. Parallelize by requirement, concatenate. |
+| > 6 | **5.B fan-out + index** | Single writer would run long / risk output-limit truncation. Parallelize by requirement; `plan.md` indexes the sub-plans. |
 
 Also take 5.B regardless of `R` if the design names many files per requirement and a single-writer plan would obviously blow the output limit (size, not just count, is the real trigger).
 
-Announce path + width before dispatching, e.g. _"7 requirements → fan-out: 1 plan-writer per requirement + concat."_
+Announce path + width before dispatching, e.g. _"7 requirements → fan-out: 1 plan-writer per requirement + index."_
 
 ### 5.A — Single writer (R ≤ 6)
 
@@ -190,13 +190,15 @@ The template enforces these rules — keep them whatever you do:
 
 When announcing the dispatch, state the chosen model: _"Dispatching plan writer on Sonnet (default — design is locked, plan generation is mechanical)."_
 
-### 5.B — Fan-out + concat (R > 6)
+### 5.B — Fan-out + index (R > 6)
 
-ONE parallel batch of writers → coordinator concatenates. One barrier, not three: no serial foundations pre-stage, no whole-plan rewrite at the end. The writers run concurrently and assembly is a `cat`, so 5.B beats 5.A on wall-clock for large plans.
+ONE parallel batch of writers → coordinator writes an index. One barrier, not three: no serial foundations pre-stage, no whole-plan rewrite at the end. Each writer's file IS the durable sub-plan for its Task; `plan.md` is a thin index pointing at them.
 
-**Output-isolation rule (non-negotiable):** every writer writes its OWN file `openspec/changes/<name>/.superpowers/plan-part-NN.md`. NEVER point two subagents at the same file — concurrent writes clobber. The coordinator owns the final `plan.md`.
+**One copy per Task (the rule the rest of 5.B follows from):** a Task's content lives in exactly one file — its sub-plan. `plan.md` holds pointers, never content. That keeps the Step-C sync scoped to the sub-plans that actually conflict, and lets a Step 6 implementer read its own Task's file instead of a whole-plan blob.
 
-**Step A — Coordinator prep (you, inline, before dispatching — cheap, no subagent).** You already hold design.md and the specs. Do the ordering/numbering yourself so the writers emit final-form blocks and concat is trivial:
+**Output-isolation rule (non-negotiable):** every writer writes its OWN file `openspec/changes/<name>/.superpowers/plan-task-NN.md`. NEVER point two subagents at the same file — concurrent writes clobber. The coordinator owns `plan.md` (the index) and is the only writer of it.
+
+**Step A — Coordinator prep (you, inline, before dispatching — cheap, no subagent).** You already hold design.md and the specs. Do the ordering/numbering yourself so the writers emit final-form blocks and the index is trivial to build:
 
 1. **Order requirements by dependency** per design.md.
 2. **Assign each a global Task number** in that order. Foundations (if any) is Task 1.
@@ -204,36 +206,45 @@ ONE parallel batch of writers → coordinator concatenates. One barrier, not thr
 
 **Step B — Single parallel batch (foundations writer + all requirement writers in ONE message).** Foundations is a peer in the batch, NOT a prerequisite — requirement writers reference shared-file PATHS (from Step A), not Task 1's output, so nothing waits on it.
 
-- **Foundations writer (only if shared scaffolding exists):** writes the shared SHELL only — schema/migrations, shared service-class skeleton (constructor + shared private helpers), shared types → `plan-part-01.md` as `### Task 1`. Does NOT write per-requirement methods; each requirement writer ADDS its methods to the shared class via a `Files: Modify` entry. No shared scaffolding → skip it, pass "none" as the shared-files list.
-- **Requirement writers:** one subagent per `## Requirement`, each emitting its FINAL-FORM `### Task N` block (global number from Step A) → `plan-part-NN.md` (`NN` = that global number, zero-padded).
-- **Model — sonnet ceiling.** Design.md is LOCKED; writing the plan is translation, not architecture, so writers do NOT need opus. Default `sonnet`; drop to `haiku` only for trivially mechanical requirements. Never opus here — an opus writer reasoning hard just stalls the whole parallel batch behind the slowest agent. (Genuine novel-concurrency judgment lives in Step C reconciliation, not in writing.) Announce model per requirement.
+- **Foundations writer (only if shared scaffolding exists):** writes the shared SHELL only — schema/migrations, shared service-class skeleton (constructor + shared private helpers), shared types → `plan-task-01.md` as `### Task 1`. Does NOT write per-requirement methods; each requirement writer ADDS its methods to the shared class via a `Files: Modify` entry. No shared scaffolding → skip it, pass "none" as the shared-files list.
+- **Requirement writers:** one subagent per `## Requirement`, each emitting its FINAL-FORM `### Task N` block (global number from Step A) → `plan-task-NN.md` (`NN` = that global number, zero-padded).
+- **Model — sonnet ceiling.** Design.md is LOCKED; writing the plan is translation, not architecture, so writers do NOT need opus. Default `sonnet`; drop to `haiku` only for trivially mechanical requirements. Never opus or fable here — a heavy-reasoning writer just stalls the whole parallel batch behind the slowest agent. (Genuine novel-concurrency judgment lives in Step C reconciliation, not in writing.) Announce model per requirement.
 - **Context:** full specs + full design.md + the shared-files list from Step A (so the writer references those files, never redefines them) + the writer's assigned global Task number.
-- Reuse 5.A's content rules: granularity (1 Task per requirement, may touch many files via the `Files:` block), terse write-style, NO placeholders, full code blocks, return path only. The write *mechanic* differs (one part file, final-form numbered heading) — do NOT carry over 5.A's plan.md header / incremental-append sequence.
+- Reuse 5.A's content rules: granularity (1 Task per requirement, may touch many files via the `Files:` block), terse write-style, NO placeholders, full code blocks, return path only. The write *mechanic* differs (one sub-plan file, final-form numbered heading) — do NOT carry over 5.A's plan.md header / incremental-append sequence.
 
 **Use the 5.B Step-B writer template in `references/step5-dispatch.md`** (also the basis for the foundations writer).
 
-**Step C — Concatenate (you, inline; subagent ONLY on real conflict).** Parts are already final-form and globally numbered, so assembly is mechanical:
+**Step C — Index + sync (you, inline; subagent ONLY on real conflict).** Sub-plans are already final-form and globally numbered, so there is nothing to assemble: they stay exactly as written and are never merged into one file, copied into `plan.md`, or deleted. Your only outputs here are the index and, if two sub-plans collide, the sync.
 
-```bash
-cat openspec/changes/<name>/.superpowers/plan-part-*.md > openspec/changes/<name>/.superpowers/plan.md
+**C1 — Read each sub-plan's `Files:` block.** One pass; you need it for both the index and the overlap check.
+
+**C2 — Write the index to `openspec/changes/<name>/.superpowers/plan.md`** (you write it; no subagent). Index only — never copy Task content into it:
+
+```markdown
+# Plan — <change-name>
+
+<N> tasks, one sub-plan each. Execute in Task order. Each sub-plan is
+self-contained: Files: block + test-first Steps with full code.
+Shared files (owned by Task 1): <paths from Step A, or "none">
+
+| Task | Sub-plan | Requirement | Files touched | Depends on |
+|---|---|---|---|---|
+| 1 | `plan-task-01.md` | Shared scaffolding | `src/db/schema.ts` | — |
+| 2 | `plan-task-02.md` | <requirement title> | `src/foo.ts`, `test/foo.test.ts` | 1 |
 ```
 
-(`plan-part-*` sorts by zero-padded `NN` = global order, so the concat is already in Task order — header it first if you want a preamble.) Then the ONE coherence check: do two parts `Modify` the same file at overlapping ranges?
+**C3 — Sync overlapping sub-plans.** The ONE coherence check: do two sub-plans `Modify` the same file at overlapping ranges?
 
-- **No** → done. Delete the `plan-part-*.md` scratch files.
-- **Yes** → dispatch ONE reconcile subagent (**5.B Step-C template in `references/step5-dispatch.md`**) scoped to ONLY those conflicting Modify blocks — merge or sequence them + note the dependency in the dependent Task. Re-read design.md for concurrency / shared-state flags first → `sonnet` default, `opus` if flagged (this is the one place reconciliation judgment justifies opus). It edits only the conflicting blocks in `plan.md`, never re-emits the whole plan. Then delete the scratch files.
+- **No** → done. Index + sub-plans are the plan.
+- **Yes** → dispatch ONE sync subagent (**5.B Step-C template in `references/step5-dispatch.md`**) scoped to ONLY the conflicting Modify blocks — merge or sequence them + note the dependency in the dependent Task. Re-read design.md for concurrency / shared-state flags first → `sonnet` default, `opus` if flagged (this is the one place reconciliation judgment justifies opus). It edits those blocks **in the conflicting `plan-task-NN.md` files in place** — never the index, never a non-conflicting sub-plan, never a re-emitted whole plan. When it returns, update the index's **Depends on** column with any sequencing it introduced.
 
-After Step C, run the caveman compress safety net (below) on the final `plan.md`.
+**HARD GATE — plan review.** After the plan is written, STOP. Do NOT proceed to Step 6. Tell the user:
 
-### Both paths — compress safety net
+> 5.A: "Plan written to `openspec/changes/<name>/.superpowers/plan.md` — <N> tasks. Review it. Reply to approve, or give changes. Execution waits for your go-ahead."
+>
+> 5.B: "Plan index at `openspec/changes/<name>/.superpowers/plan.md` — <N> tasks, one sub-plan each (`plan-task-NN.md`). Review it. Reply to approve, or give changes. Execution waits for your go-ahead."
 
-After the plan writer (5.A) or the Step-C concat (5.B) returns, IF the caveman plugin is installed (`[ -d ~/.claude/plugins/cache/caveman ]`), run `/caveman:compress openspec/changes/<name>/.superpowers/plan.md` — strips any leftover filler. Backup auto-saved at `plan.original.md`. Skip silently if caveman not installed.
-
-**HARD GATE — plan review.** After plan.md is written (and compressed, if caveman installed), STOP. Do NOT proceed to Step 6. Tell the user:
-
-> "Plan written to `openspec/changes/<name>/.superpowers/plan.md` — <N> tasks. Review it. Reply to approve, or give changes. Execution waits for your go-ahead."
-
-The user needs time to read the plan before subagents start writing code. Only proceed to Step 6 after the user explicitly approves. If they request changes, revise plan.md (or re-dispatch the plan writer) and re-surface the gate. Do not interpret silence or an unrelated message as approval — wait for a clear go-ahead.
+The user needs time to read the plan before subagents start writing code. Only proceed to Step 6 after the user explicitly approves. If they request changes, revise the affected file — plan.md (5.A) or the specific `plan-task-NN.md` plus the index row (5.B) — or re-dispatch that writer, then re-surface the gate. Do not interpret silence or an unrelated message as approval — wait for a clear go-ahead.
 
 ## Step 6 — Execute (only after plan approved)
 
@@ -243,6 +254,14 @@ Invoke **superpowers:subagent-driven-development** with the plan path AND the mo
 
 ```
 Plan file: openspec/changes/<name>/.superpowers/plan.md
+
+[5.B only — add verbatim when the plan is an index:]
+plan.md is an INDEX, not the plan body. Each row maps Task N to a
+sub-plan file `plan-task-NN.md` in the same directory — that file holds
+Task N's full Files: block and Steps. Per task: read ONLY that task's
+sub-plan (plus the index row for its Depends on), and tick its
+checkboxes in that same sub-plan file. plan.md stays an index — do not
+write Task content into it.
 
 Run spec-compliance review after each task, but SKIP the code-quality
 review stage AND the final whole-implementation reviewer — code quality
@@ -258,7 +277,7 @@ The subagent-driven-development skill will then dispatch a fresh implementer per
 
 ### Model Triage
 
-Default to **Sonnet** for implementers. Use the signal table to move up to Opus or down to Haiku. Score each signal, then apply the dominance rule.
+Ladder: **Haiku → Sonnet → Opus → Fable.** Default to **Sonnet** for implementers. Use the signal table to move up to Opus or down to Haiku; Fable sits above Opus behind the narrow gate below. Score each signal, then apply the dominance rule.
 
 | Signal | Lean Haiku | Lean Sonnet | Lean Opus |
 |---|---|---|---|
@@ -275,9 +294,18 @@ Default to **Sonnet** for implementers. Use the signal table to move up to Opus 
 - Any signal leans Opus → **Opus** (`model: opus`)
 - Otherwise → **Sonnet** (`model: sonnet`)
 
+**Fable — top tier, narrow gate.** Fable (`model: fable`) is the most capable model and the most expensive per task: roughly 2× Opus's per-token price, thinking always on, single turns that can run many minutes. Escalate Opus → Fable only when BOTH hold:
+
+1. **Three or more signals lean Opus** — not one Opus trigger in an otherwise Sonnet-shaped task.
+2. The task is **long-horizon or genuinely novel** — new architecture with no repo precedent, a new concurrency or protocol model, or a cross-cutting change whose blast radius the plan cannot enumerate.
+
+Never Fable for: spec-compliance review, plan writing (5.A / 5.B / Step-C reconcile), or anything a Sonnet implementer already passes review on. In a parallel batch one Fable task stalls the batch behind it — prefer Opus when tasks run concurrently.
+
+**Fable quota fallback.** Fable draws on a smaller, separate usage quota than Opus. If a `model: fable` dispatch fails on quota or availability (usage-limit error, model unavailable, rate limit naming the model), do NOT retry Fable and do NOT downgrade the task's scope — re-dispatch the SAME task on `model: opus` and announce it: _"Fable quota exhausted — Task 4 re-dispatched on Opus (next tier down)."_ Opus then becomes the standing top tier for the rest of the run; stop attempting Fable until the user says the quota reset.
+
 **Hard overrides (these win regardless of signals):**
 - **Spec compliance reviewer → always `model: sonnet`** (verification, not generation)
-- **Implementer returns `BLOCKED` for reasoning reasons → upgrade one tier (haiku→sonnet, sonnet→opus) and re-dispatch.** A `BLOCKED` for missing context is NOT a tier upgrade — provide context and re-dispatch with the same model.
+- **Implementer returns `BLOCKED` for reasoning reasons → upgrade one tier (haiku→sonnet→opus→fable) and re-dispatch.** A `BLOCKED` for missing context is NOT a tier upgrade — provide context and re-dispatch with the same model. **Fable is terminal:** a Fable implementer that returns `BLOCKED` for reasoning means the plan Task is underspecified — stop and take it back to the user, do not loop.
 
 **When announcing a dispatch, state the chosen model and the dominant signal that drove it**, e.g. _"Dispatching implementer for Task 3 on Sonnet (default — multi-file integration, no Opus signals)."_ This makes triage decisions auditable.
 
@@ -333,8 +361,8 @@ openspec archive <name>
 ## Output Discipline
 
 - **Design.md** = thorough prose. User reviews this.
-- **Plan.md** = caveman-compressed, actionable lines only.
-- **End-of-orchestration summary** = SKIP. User reads ticked tasks in plan.md. Output at most one line: `Archived <name>. <N> tasks done. Plan: <path>.`
+- **Plan.md** = terse, actionable lines only (the writers' terse write-style is the only pass — no post-hoc compression step).
+- **End-of-orchestration summary** = SKIP. User reads ticked tasks in plan.md (5.A) or the sub-plans it indexes (5.B). Output at most one line: `Archived <name>. <N> tasks done. Plan: <path>.`
 - Per-step status updates during run = one terse line each (e.g. `Step 4 done. Design at <path>.`).
 
 ## Delegation Reference
@@ -360,6 +388,8 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Reimplementing a step inline instead of delegating | If a delegate is missing, stop and tell the user. Never reinvent |
 | Skipping state detection and restarting from step 1 | Always run `openspec status --json` first; resume at the right step |
 | Dispatching implementer/spec-reviewer subagents without an explicit `model:` parameter — they silently inherit Opus from the parent | Apply the Model Triage table for every dispatch; Sonnet is the default, Haiku for trivial mechanical tasks, Opus reserved for complex/cross-cutting implementation and the Step-C reconcile |
+| Reaching for Fable because a task "looks hard" — one Opus signal is not the Fable gate, and Fable burns ~2× Opus per token | Fable needs 3+ Opus signals AND long-horizon/novel work. Otherwise Opus. Never Fable for reviews or plan writing |
+| Retrying Fable after a quota/availability failure, or silently dropping the task | Re-dispatch the same task on `model: opus` and announce the downgrade; Opus is the standing top tier for the rest of the run |
 | Calling `openspec archive` without running `/simplify` first | Step 7 runs `/simplify` once (the sole quality/cleanup gate) before Step 8 archive |
 | Letting `superpowers:brainstorming` auto-chain into `superpowers:writing-plans` — plan generation runs on Opus by inheritance even though it's mechanical | Tell brainstorming to STOP after design.md (Step 4), then dispatch writing-plans as its own Task on `model: sonnet` (Step 5) |
 | Dispatching Step 5 right after design.md is written — user never got to review the design | Step 4 ends at a HARD GATE. Stop, ask the user to review design.md, wait for explicit approval before Step 5 |
@@ -368,10 +398,11 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Step 5 subagent writes the whole plan in one Write — Sonnet hits its output token limit, plan.md truncates mid-Task | Step 5 dispatch prompt MUST include the INCREMENTAL WRITE rule. First Write = header only, then one Edit-append per Task group. Never batch all Tasks into one call |
 | Step 5 subagent echoes plan content back into its response — doubles output, recompounds the limit hit | Return ONLY path + Task count. Plan lives in the file, never in the message |
 | Large scope (R>6) written by one sonnet subagent — truncates / drags serially | Run Step 5.0 first: count `## Requirement`. R>6 → fan out (5.B). R≤6 → single writer (5.A) |
-| Fan-out (5.B) points >1 subagent at the same `plan.md` — concurrent writes clobber | Each writer owns its own `plan-part-NN.md`. Only the coordinator (and the optional Step-C reconcile subagent) touches `plan.md` |
-| Re-introducing a serial foundations pre-stage or a whole-plan stitch rewrite — fan-out cost ≈ a full single-writer pass on top of the writers, never beats 5.A | Foundations writer rides in the SAME parallel batch (peer, not prerequisite); coordinator assigns global Task numbers + extracts shared-file paths from design.md inline; assembly is `cat` of final-form parts, not a rewrite |
-| Fan-out writer dispatched on opus — slow reasoning stalls the whole parallel batch behind it | Sonnet ceiling for writers (design is locked → writing is translation). haiku for trivial, never opus. Opus only for the Step-C reconcile when concurrency flagged |
-| Coordinator skips the overlapping-Modify check before declaring done — unreconciled shared-file edits ship | After `cat`, check for two parts Modifying the same file at overlapping ranges → dispatch the Step-C reconcile subagent scoped to those blocks only |
+| Fan-out (5.B) points >1 subagent at the same file — concurrent writes clobber | Each writer owns its own `plan-task-NN.md`. Only the coordinator writes `plan.md` (the index); the Step-C sync subagent touches only the conflicting sub-plans |
+| Assembling the 5.B sub-plans — merging them into one file, copying their content into `plan.md`, or deleting them once indexed | One copy per Task. Sub-plans hold the content and stay put; `plan.md` holds index rows only: Task # → sub-plan path → requirement → files touched → depends on |
+| Re-introducing a serial foundations pre-stage or a whole-plan stitch rewrite — fan-out cost ≈ a full single-writer pass on top of the writers, never beats 5.A | Foundations writer rides in the SAME parallel batch (peer, not prerequisite); coordinator assigns global Task numbers + extracts shared-file paths from design.md inline; assembly is an index over final-form sub-plans, not a rewrite |
+| Fan-out writer dispatched on opus or fable — slow reasoning stalls the whole parallel batch behind it | Sonnet ceiling for writers (design is locked → writing is translation). haiku for trivial, never opus or fable. Opus only for the Step-C reconcile when concurrency flagged |
+| Coordinator skips the overlapping-Modify check before declaring done — unsynced shared-file edits ship | While reading the `Files:` blocks for the index, check for two sub-plans Modifying the same file at overlapping ranges → dispatch the Step-C sync subagent scoped to those blocks only |
 | Fanned out below threshold (R≤6) — coordination overhead, no gain | Use 5.A single writer. Fan-out only pays above R>6 (or when plan size alone would truncate) |
 
 ## Red Flags — Stop and Recheck
@@ -382,6 +413,8 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 - About to write `.superpowers/design.md` outside the change directory.
 - About to dispatch a subagent without an explicit `model:` parameter (silently inherits Opus).
 - About to dispatch the implementer on Opus when no Opus signal from the triage table fired.
+- About to dispatch on Fable without 3+ Opus signals AND long-horizon/novel work — or on Fable inside a parallel batch it would stall.
+- About to retry Fable after a quota failure instead of re-dispatching the same task on Opus.
 - About to let subagent-driven-development run its per-task code-quality review or its final whole-implementation reviewer — both removed; code quality is the single Step 7 `/simplify` pass.
 - About to call `openspec archive` without running `/simplify` first (Step 7).
 - About to let brainstorming auto-chain into writing-plans (plan generation will inherit Opus). Step 4 must end at design.md; Step 5 dispatches plan writing on Sonnet.
@@ -390,10 +423,11 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 - About to dispatch Step 5 without the TASK GRANULARITY OVERRIDE in the prompt — writing-plans will produce one Task per 2-5 min atomic action and execution will crawl.
 - About to dispatch Step 5 without the INCREMENTAL WRITE rule in the prompt — the subagent writes the whole plan in one Write, hits Sonnet's output limit, and plan.md truncates.
 - About to dispatch Step 5 without first counting `## Requirement` (Step 5.0) — can't pick single-writer vs fan-out path.
-- About to fan out (5.B) pointing more than one subagent at the same `plan.md` — concurrent writes clobber. Each writer owns a `plan-part-NN.md`.
-- About to dispatch a serial foundations pre-stage, or a whole-plan stitch rewrite — both reintroduce the barrier/duplicate-write tax that makes fan-out lose to 5.A. Foundations is a peer in the one parallel batch; assembly is `cat` of final-form parts.
-- About to dispatch a 5.B writer on opus — sonnet ceiling; opus only for the Step-C reconcile.
-- About to `cat` the parts and declare done without checking for overlapping shared-file Modifies — run the Step-C reconcile if any exist.
+- About to fan out (5.B) pointing more than one subagent at the same file — concurrent writes clobber. Each writer owns a `plan-task-NN.md`; only the coordinator writes the `plan.md` index.
+- About to assemble the 5.B sub-plans — merge them into one file, copy their content into the index, or delete them once indexed. All three break one-copy-per-Task.
+- About to dispatch a serial foundations pre-stage, or a whole-plan stitch rewrite — both reintroduce the barrier/duplicate-write tax that makes fan-out lose to 5.A. Foundations is a peer in the one parallel batch; assembly is an index over final-form sub-plans.
+- About to dispatch a 5.B writer on opus or fable — sonnet ceiling; opus only for the Step-C reconcile.
+- About to write the index and declare done without checking for overlapping shared-file Modifies — run the Step-C sync if any exist.
 - About to fan out below the R>6 threshold, or single-write a plan large enough to truncate — wrong path for the scope.
 
 All of these mean: stop, re-read this skill, and resume at the correct step.

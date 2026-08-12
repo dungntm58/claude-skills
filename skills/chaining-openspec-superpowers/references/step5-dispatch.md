@@ -8,9 +8,9 @@ copy-paste reference. Load on demand at dispatch time.
 - 5.A single-writer dispatch → use the **5.A template**.
 - 5.B per-requirement fan-out → use the **Step-B writer template** (also the
   basis for the foundations writer in the same parallel batch).
-- 5.B conflict reconcile → use the **Step-C reconcile template** (only when two
-  parts Modify the same file at overlapping ranges; otherwise the coordinator
-  just `cat`s the parts).
+- 5.B sub-plan sync → use the **Step-C sync template** (only when two sub-plans
+  Modify the same file at overlapping ranges; otherwise the coordinator just
+  writes the `plan.md` index over them).
 
 ---
 
@@ -93,7 +93,8 @@ Task(
     - Still NO placeholders, NO "TBD", full code blocks required for
       every file touched.
 
-    WRITE STYLE — terse/compressed (independent of caveman plugin presence):
+    WRITE STYLE — terse (this is the ONLY compression pass; nothing
+    post-processes the plan, so write it tight the first time):
     - Drop articles (a/an/the), filler (just/really/basically), pleasantries.
     - Fragments OK. Pattern: "[file] [action] [reason]." per task line.
     - Keep all code blocks, file paths, function names, error strings VERBATIM.
@@ -126,7 +127,7 @@ Task(
 All writers go out in ONE parallel message. Also the basis for the
 **foundations writer** (a peer in the same batch, NOT a serial pre-stage):
 replace "this requirement" with "the shared scaffolding named in design.md",
-fix its global number to `1`, write to `plan-part-01.md`, scope to the shared
+fix its global number to `1`, write to `plan-task-01.md`, scope to the shared
 shell only (see SKILL.md Step B). The coordinator assigns the global Task
 number and shared-file list inline before dispatching — writers do NOT
 renumber or reorder.
@@ -134,7 +135,7 @@ renumber or reorder.
 ```
 Task(
   subagent_type: "general-purpose",
-  model: "<haiku|sonnet per triage — NEVER opus>",
+  model: "<haiku|sonnet per triage — NEVER opus or fable>",
   description: "Write plan Task N for <requirement>",
   prompt: """
     Invoke superpowers:writing-plans and apply its Task Structure to
@@ -165,9 +166,11 @@ Task(
     + paths + names + error strings verbatim, keep TDD + checkboxes.
 
     Write the block to:
-      openspec/changes/<name>/.superpowers/plan-part-NN.md
-    (NN = your global Task number <N>, zero-padded). One Write; if the block
-    is huge, header-Write then Edit-append the Steps. Touch ONLY this file.
+      openspec/changes/<name>/.superpowers/plan-task-NN.md
+    (NN = your global Task number <N>, zero-padded). This file IS the durable
+    sub-plan for your Task and is executed on its own, so it must stand alone.
+    One Write; if the block is huge, header-Write then Edit-append the Steps.
+    Touch ONLY this file.
 
     Return: ONLY the file path. Do NOT echo plan content.
   """
@@ -176,36 +179,42 @@ Task(
 
 ---
 
-## 5.B Step C — Conflict reconcile template (only on overlapping shared Modifies)
+## 5.B Step C — Sub-plan sync template (only on overlapping shared Modifies)
 
-Skip this entirely when no two parts Modify the same file at overlapping
-ranges — the coordinator just `cat`s the part files into `plan.md` (they are
-already final-form and globally numbered) and deletes the scratch files. Use
-this ONLY to reconcile the specific conflicting blocks. It edits those blocks
-in place; it NEVER re-emits the whole plan.
+Skip this entirely when no two sub-plans Modify the same file at overlapping
+ranges — the coordinator just writes the `plan.md` index over the sub-plans
+(already final-form and globally numbered) and stops. Sub-plans are the
+durable plan and are never deleted. Use this ONLY to
+sync the specific conflicting blocks, in place, across the sub-plan files that
+actually conflict.
 
 ```
 Task(
   subagent_type: "general-purpose",
   model: "<sonnet default | opus if design flagged concurrency/shared state>",
-  description: "Reconcile overlapping shared-file Modifies in plan.md",
+  description: "Sync overlapping shared-file Modifies across sub-plans",
   prompt: """
-    plan.md already exists (parts concatenated in global Task order). Two or
-    more Tasks Modify the same file at overlapping ranges. Fix ONLY that.
+    Each Task lives in its own sub-plan file, already final-form and globally
+    numbered. Two or more Tasks Modify the same file at overlapping ranges.
+    Fix ONLY that.
 
     Conflicting Tasks: <Task numbers> over file(s): <paths>
 
-    Read:
-    - openspec/changes/<name>/.superpowers/plan.md   (the assembled plan)
-    - openspec/changes/<name>/.superpowers/design.md (dependency intent)
+    Read (ONLY these sub-plans, one per conflicting Task):
+    - openspec/changes/<name>/.superpowers/plan-task-NN.md   (one per Task above)
+    - openspec/changes/<name>/.superpowers/design.md         (dependency intent)
 
     For each conflict: merge or sequence the overlapping Modify blocks, and
     note the dependency in the dependent Task ("depends on Task <k>'s edit to
     <file>"). Keep ALL code blocks, file paths, signatures, error strings
-    VERBATIM. Edit ONLY the conflicting Task blocks — do NOT touch other
-    Tasks, do NOT renumber, do NOT rewrite the whole file.
+    VERBATIM. Edit ONLY the conflicting blocks, in the sub-plan file that owns
+    each one. Do NOT touch non-conflicting sub-plans, do NOT touch the plan.md
+    index, do NOT renumber, do NOT rewrite a whole file, do NOT merge sub-plans
+    into one file.
 
-    Return: ONLY the Task numbers you edited.
+    Return: ONLY the Task numbers you edited and, for each, the dependency you
+    recorded (or "none"). The coordinator uses this to update the index's
+    Depends on column.
   """
 )
 ```
