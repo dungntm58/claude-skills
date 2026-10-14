@@ -1,9 +1,9 @@
 # Step 5 — Dispatch templates
 
-Verbatim `Task()` templates and the granularity worked-example for
-chaining-openspec-superpowers **Step 5** (implementation plan). The rules
-these templates enforce live inline in SKILL.md Step 5 — this file is the
-copy-paste reference. Load on demand at dispatch time.
+Verbatim `Task()` templates for chaining-openspec-superpowers **Step 5**
+(implementation plan). The rules these templates enforce live inline in
+SKILL.md Step 5 — this file is the copy-paste reference. Load on demand at
+dispatch time.
 
 - 5.A single-writer dispatch → use the **5.A template**.
 - 5.B per-requirement fan-out → use the **Step-B writer template** (also the
@@ -11,6 +11,88 @@ copy-paste reference. Load on demand at dispatch time.
 - 5.B sub-plan sync → use the **Step-C sync template** (only when two sub-plans
   Modify the same file at overlapping ranges; otherwise the coordinator just
   writes the `plan.md` index over them).
+
+Both writer templates contain a `<<TASK SHAPE>>` slot. Paste the **TASK SHAPE**
+block below into it verbatim — it is the one definition of what a plan Task
+contains, so 5.A and 5.B plans come out the same shape.
+
+---
+
+## TASK SHAPE — shared by every writer
+
+```
+TASK SHAPE — signatures + pseudo code, not code. This replaces
+writing-plans' Task Structure (its code-block Steps), the code
+requirement in its No Placeholders list, and its Review Focus section.
+The implementer writes the real code and tests from this block, so
+write each step concrete enough that two implementers would build the
+same behavior: exact names, values, error strings, branch outcomes.
+
+A Task block is these parts, in order:
+1. `### Task <N>: <requirement title>`
+2. **Files:** one line each — `Create|Modify|Test: <exact path>`
+   (Modify with line range when known), then ` — <role, few words>`.
+3. **Interfaces:** `Consumes:` / `Produces:` — exact signatures (with
+   types) that other Tasks call or provide. `none` if none.
+4. **Data:** only when the Task adds or changes a schema, type, or
+   payload — field list, `name: type, constraint`.
+5. One entry per function / method / route / handler:
+   **`<exact signature>`** — <what it does, one line>
+   then numbered pseudo-code steps, one line each, when it has
+   branches, ordering, or edge cases: plain words + exact identifiers,
+   constants, error strings, status codes; outcomes inline
+   (`null → NotFoundError("…")`).
+   Trivial entries (getter, wiring, re-export): signature + purpose
+   line only.
+6. **Tests:** `<test file>` — one line per case, `<scenario> → <expected>`:
+   each spec scenario and each design.md rule this Task implements,
+   plus at most 3 failure modes neither states (bad input, empty,
+   duplicate, expiry, …), most likely to bite first. Variants of one
+   case share its line. writing-plans' Review Focus lands here.
+7. `- [ ] Red → green → commit: <type>: <subject>`
+
+Example — right shape, right altitude:
+
+### Task 3: User can reset password via email link
+
+**Files:**
+- Create: `src/services/PasswordResetService.ts` — token issue + verify
+- Create: `src/routes/auth/password-reset.ts` — two endpoints
+- Create: `db/migrations/0042_password_reset_tokens.sql` — token table
+- Modify: `src/routes/index.ts:28` — mount router
+- Test: `tests/routes/auth/password-reset.test.ts`
+
+**Interfaces:**
+- Consumes: `UserRepo.findByEmail(email: string): Promise<User | null>` (Task 1)
+- Produces: `PasswordResetService.requestReset(email: string): Promise<void>`,
+  `PasswordResetService.confirmReset(token: string, password: string): Promise<void>`
+
+**Data:** `password_reset_tokens` — `id: uuid pk`, `user_id: uuid fk users`,
+`token_hash: text unique`, `expires_at: timestamptz`, `used_at: timestamptz null`
+
+**`requestReset(email: string): Promise<void>`** — issue one-time token, email the link.
+1. user = UserRepo.findByEmail(email); null → return (no email; caller can't tell)
+2. token = 32 random bytes as hex; insert sha256(token), expires_at = now + 30 min
+3. send email template `password-reset` with link `/reset?token=<token>`
+
+**`confirmReset(token: string, password: string): Promise<void>`** — verify token, set password, burn token.
+1. row = find by sha256(token); none → InvalidTokenError("invalid token")
+2. expires_at < now or used_at set → ExpiredTokenError("token expired")
+3. one transaction: set user password hash; set row used_at = now
+
+**`POST /auth/forgot-password`** `{ email }` — requestReset → always 202
+**`POST /auth/reset-password`** `{ token, password }` — confirmReset → 204;
+InvalidTokenError → 400; ExpiredTokenError → 410
+
+**Tests:** `tests/routes/auth/password-reset.test.ts`
+- valid token + new password → 204; login with new password succeeds
+- expired token → 410 `token expired`
+- token used twice → second call 410 `token expired`
+- unknown token → 400 `invalid token`
+- unregistered email → 202, no email sent
+
+- [ ] Red → green → commit: `feat: password reset via email link`
+```
 
 ---
 
@@ -23,96 +105,66 @@ Task(
   description: "Write implementation plan",
   prompt: """
     Invoke superpowers:writing-plans to produce the implementation plan.
+    Where this prompt and writing-plans differ, this prompt wins.
 
     Inputs (read these first, do not ask the user):
     - openspec/changes/<name>/specs/        (locked requirements)
     - openspec/changes/<name>/.superpowers/design.md  (locked technical design)
 
     The WHAT and the HOW are both already decided. Your job is purely
-    to translate the design into bite-sized TDD tasks with concrete
-    code blocks per the writing-plans skill.
+    to translate the design into Tasks of the TASK SHAPE below.
 
     Save plan to: openspec/changes/<name>/.superpowers/plan.md
 
-    TASK GRANULARITY OVERRIDE — coarser than writing-plans default:
-    writing-plans Task Structure already groups red/green/commit as
-    STEPS inside one Task. Problem is Task scope itself runs too narrow
-    (one function, one test case). OVERRIDE Task scope here.
+    PLAN HEADER — replaces writing-plans' header. Exactly:
+      # Plan — <change-name>
+      **Goal:** <one sentence>
+      **Spec:** openspec/changes/<name>/specs/ + .superpowers/design.md
+      ## Global Constraints
+      - <rule binding more than one Task, exact value copied from
+        spec/design> (one line each; "- none" if none)
 
+    TASK GRANULARITY OVERRIDE — coarser than writing-plans default:
     - One Task = one cohesive business requirement / capability /
       vertical slice — what a reviewer would PR-review as a unit.
-    - A Task MAY touch multiple files when one requirement spans them.
-      Use the writing-plans `Files:` block (Create / Modify / Test) to
-      list every file in scope. Do not split a requirement across
-      Tasks just because it touches >1 file.
-
-      SCOPE EXAMPLE — right altitude per writing-plans Task Structure
-      (Files: block uses Create/Modify/Test verbatim; signatures + test
-      cases live inside Step code blocks, NOT in Files annotations):
-
-      ### Task 3: User can reset password via email link
-
-      **Files:**
-        - Create: `src/services/PasswordResetService.ts`
-        - Create: `src/routes/auth/reset-password.ts`
-        - Create: `src/emails/password-reset.tsx`
-        - Create: `db/migrations/0042_password_reset_tokens.sql`
-        - Modify: `src/services/AuthService.ts:142-158`
-        - Modify: `src/routes/index.ts:28`
-        - Test: `tests/routes/auth/reset-password.test.ts`
-
-      Steps follow writing-plans Task Structure (test-first, minimal
-      impl, run, commit). All function signatures, SQL DDL, route
-      payloads, and the 3 test cases (happy path, expired token → 410,
-      invalid email → 404) live VERBATIM inside their Step code
-      blocks. No placeholders.
-
-      Right altitude: one requirement, every touched file enumerated,
-      concrete code lands in Steps. Subagent has no room to improvise
-      scope OR signatures.
-
-      WRONG — too abstract (subagent deviates):
+    - A Task MAY touch many files; list every one in its Files: block.
+      Do not split a requirement across Tasks because it touches >1 file.
+    - A Task MAY hold many related test cases + their implementation.
+      Group tests by requirement, not 1:1 with Tasks.
+    - Target: 1 Task per spec requirement (each `### Requirement:`
+      block in openspec/changes/<name>/specs/). >2 Tasks per
+      requirement = over-decomposed — merge.
+    - Implementer subagent finishes a Task in ~15-30 min wall clock.
+    - Right altitude = the TASK SHAPE example.
+      WRONG — too abstract (implementer improvises scope + names):
         ### Task 3: Implement password reset feature
         Files: src/auth/*, tests/*
         Steps: add password reset functionality
-
-      WRONG — too granular (original problem returns):
+      WRONG — too granular (one subagent per function, execution crawls):
         ### Task 3: Add generateToken() to PasswordResetService
         ### Task 4: Add verifyToken() to PasswordResetService
         ### Task 5: Add POST /auth/reset-password route
-        ### Task 6: Add password reset email template
         (collapse into one Task)
-    - A Task MAY contain multiple related test cases + their
-      implementation together. Group tests by requirement, not 1:1
-      with Tasks.
-    - Target: 1 Task per spec capability (the `## Requirement` blocks
-      in openspec/changes/<name>/specs/). If you emit >2 Tasks per
-      requirement, you are over-decomposing — merge.
-    - Implementer subagent should be able to finish a Task in ~15-30
-      minutes wall clock.
-    - Still NO placeholders, NO "TBD", full code blocks required for
-      every file touched.
+
+    <<TASK SHAPE>>
 
     WRITE STYLE — terse (this is the ONLY compression pass; nothing
     post-processes the plan, so write it tight the first time):
     - Drop articles (a/an/the), filler (just/really/basically), pleasantries.
-    - Fragments OK. Pattern: "[file] [action] [reason]." per task line.
-    - Keep all code blocks, file paths, function names, error strings VERBATIM.
-    - Keep TDD discipline (test-first) and acceptance checkboxes per Task.
-    - No prose summaries between Tasks. No restating the design.
-    - Goal: every line is actionable. Zero filler.
+    - Fragments OK.
+    - Keep signatures, file paths, names, values, error strings VERBATIM.
+    - No prose between Tasks. No restating the design.
 
     INCREMENTAL WRITE — MANDATORY (Sonnet output-limit guard):
-    A full plan in one Write blows the Sonnet output token limit and
-    truncates plan.md. Build the file incrementally instead:
-    - First Write: create plan.md with header + any preamble ONLY.
-    - Then ONE Edit-append per Task group (append Task N's full block,
-      then Task N+1, …). One Task per Edit. Never batch all Tasks into
-      one tool call.
+    - First Write: create plan.md with the PLAN HEADER only.
+    - Then ONE Edit-append per Task (Task N's full block, then Task N+1,
+      …). Never batch all Tasks into one tool call.
     - Each tool call carries only the chunk it writes — never restate
       earlier Tasks or the design in a later call.
-    - NEVER echo plan content into your response text. The plan lives in
-      the file, not in your message.
+    - NEVER echo plan content into your response text.
+
+    Skip writing-plans' Execution Handoff — the orchestrator owns review
+    and execution.
 
     Return: ONLY the path to the saved plan and Task count. No prose
     summary. Do NOT echo plan content.
@@ -138,13 +190,11 @@ Task(
   model: "<haiku|sonnet per triage — NEVER opus or fable>",
   description: "Write plan Task N for <requirement>",
   prompt: """
-    Invoke superpowers:writing-plans and apply its Task Structure to
-    EXACTLY this one requirement — produce ONE Task block, no others, no
-    whole-plan preamble/overview. If writing-plans emits more than this
-    requirement's Task, keep only this requirement's block and discard the
-    rest.
+    Invoke superpowers:writing-plans and apply it to EXACTLY this one
+    requirement — ONE Task block, no plan header, no other Tasks. Where
+    this prompt and writing-plans differ, this prompt wins.
 
-    Requirement: "<## Requirement title>" in
+    Requirement: "<requirement title>" in
       openspec/changes/<name>/specs/<file>
     Your assigned GLOBAL Task number: <N>   (use it verbatim in the heading;
       do NOT renumber, the coordinator already fixed dependency order)
@@ -155,22 +205,19 @@ Task(
     Shared files already owned by Task 1 (reference, do NOT redefine):
     - <shared-file path list from design.md, or "none">
 
-    Emit ONE `### Task <N>: <requirement title>` block per the writing-plans
-    Task Structure: Files: block (Create/Modify/Test), test-first Steps
-    with full code blocks. All signatures, DDL, payloads, test cases
-    VERBATIM inside Step code blocks. No placeholders, no "TBD".
-    If you must Modify a shared file owned by Task 1, say so in the Files:
-    block — do NOT redefine its created contents.
+    <<TASK SHAPE>>
 
-    Write STYLE — terse: drop articles/filler, fragments OK, keep code
-    + paths + names + error strings verbatim, keep TDD + checkboxes.
+    If you must Modify a shared file owned by Task 1, list it in Files:
+    as Modify — never redefine its created contents.
+
+    WRITE STYLE — terse: drop articles/filler, fragments OK; keep
+    signatures, paths, names, values, error strings verbatim.
 
     Write the block to:
       openspec/changes/<name>/.superpowers/plan-task-NN.md
     (NN = your global Task number <N>, zero-padded). This file IS the durable
-    sub-plan for your Task and is executed on its own, so it must stand alone.
-    One Write; if the block is huge, header-Write then Edit-append the Steps.
-    Touch ONLY this file.
+    sub-plan for your Task and its execution brief, so it must stand alone.
+    One Write. Touch ONLY this file.
 
     Return: ONLY the file path. Do NOT echo plan content.
   """
@@ -204,13 +251,14 @@ Task(
     - openspec/changes/<name>/.superpowers/plan-task-NN.md   (one per Task above)
     - openspec/changes/<name>/.superpowers/design.md         (dependency intent)
 
-    For each conflict: merge or sequence the overlapping Modify blocks, and
-    note the dependency in the dependent Task ("depends on Task <k>'s edit to
-    <file>"). Keep ALL code blocks, file paths, signatures, error strings
-    VERBATIM. Edit ONLY the conflicting blocks, in the sub-plan file that owns
-    each one. Do NOT touch non-conflicting sub-plans, do NOT touch the plan.md
-    index, do NOT renumber, do NOT rewrite a whole file, do NOT merge sub-plans
-    into one file.
+    For each conflict: merge or sequence the overlapping Modify entries and
+    their pseudo code, and note the dependency in the dependent Task
+    ("depends on Task <k>'s edit to <file>"). Keep signatures, pseudo-code
+    steps, file paths, error strings VERBATIM. Edit ONLY the conflicting
+    entries, in the sub-plan file that owns each one. Do NOT touch
+    non-conflicting sub-plans, do NOT touch the plan.md index, do NOT
+    renumber, do NOT rewrite a whole file, do NOT merge sub-plans into one
+    file.
 
     Return: ONLY the Task numbers you edited and, for each, the dependency you
     recorded (or "none"). The coordinator uses this to update the index's
