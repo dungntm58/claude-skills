@@ -45,7 +45,7 @@ A Task block is these parts, in order:
    Trivial entries (getter, wiring, re-export): signature + purpose
    line only.
 6. **Tests:** `<test file>` — one line per case, `<scenario> → <expected>`:
-   each spec scenario and each design.md rule this Task implements,
+   each spec scenario and each design-brief.md rule this Task implements,
    plus at most 3 failure modes neither states (bad input, empty,
    duplicate, expiry, …), most likely to bite first. Variants of one
    case share its line. writing-plans' Review Focus lands here.
@@ -109,7 +109,9 @@ Task(
 
     Inputs (read these first, do not ask the user):
     - openspec/changes/<name>/specs/        (locked requirements)
-    - openspec/changes/<name>/.superpowers/design.md  (locked technical design)
+    - openspec/changes/<name>/.superpowers/design-brief.md  (locked technical
+      design, condensed; open design.md only to resolve a gap, and only
+      the relevant section)
 
     The WHAT and the HOW are both already decided. Your job is purely
     to translate the design into Tasks of the TASK SHAPE below.
@@ -119,7 +121,7 @@ Task(
     PLAN HEADER — replaces writing-plans' header. Exactly:
       # Plan — <change-name>
       **Goal:** <one sentence>
-      **Spec:** openspec/changes/<name>/specs/ + .superpowers/design.md
+      **Spec:** openspec/changes/<name>/specs/ + .superpowers/design-brief.md
       ## Global Constraints
       - <rule binding more than one Task, exact value copied from
         spec/design> (one line each; "- none" if none)
@@ -178,7 +180,7 @@ Task(
 
 All writers go out in ONE parallel message. Also the basis for the
 **foundations writer** (a peer in the same batch, NOT a serial pre-stage):
-replace "this requirement" with "the shared scaffolding named in design.md",
+replace "this requirement" with "the shared scaffolding named in design-brief.md",
 fix its global number to `1`, write to `plan-task-01.md`, scope to the shared
 shell only (see SKILL.md Step B). The coordinator assigns the global Task
 number and shared-file list inline before dispatching — writers do NOT
@@ -201,9 +203,10 @@ Task(
 
     Read first (do not ask the user):
     - openspec/changes/<name>/specs/                 (all locked requirements)
-    - openspec/changes/<name>/.superpowers/design.md (locked design)
+    - openspec/changes/<name>/.superpowers/design-brief.md (locked design,
+      condensed; design.md only for a gap, relevant section only)
     Shared files already owned by Task 1 (reference, do NOT redefine):
-    - <shared-file path list from design.md, or "none">
+    - <shared-file path list from design-brief.md, or "none">
 
     <<TASK SHAPE>>
 
@@ -249,7 +252,7 @@ Task(
 
     Read (ONLY these sub-plans, one per conflicting Task):
     - openspec/changes/<name>/.superpowers/plan-task-NN.md   (one per Task above)
-    - openspec/changes/<name>/.superpowers/design.md         (dependency intent)
+    - openspec/changes/<name>/.superpowers/design-brief.md   (dependency intent)
 
     For each conflict: merge or sequence the overlapping Modify entries and
     their pseudo code, and note the dependency in the dependent Task
