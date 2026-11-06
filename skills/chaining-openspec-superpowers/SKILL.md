@@ -37,9 +37,10 @@ Always run state detection first and tell the user where you're starting.
 3. Fill proposal + specs (HARD GATE: openspec validate)
 4. Technical design (superpowers:brainstorming, design only) (HARD GATE: user reviews design.md)
 4.5 Condense design (design.md stays; write design-brief.md for agents)
-5. Implementation plan (superpowers:writing-plans) (HARD GATE: user reviews plan.md)
+5. Implementation plan (superpowers:writing-plans; one sub-plan file per Task + plan.md index) (HARD GATE: user reviews plan)
 6. Execute (superpowers:subagent-driven-development — spec-compliance review only)
 7. Simplify (/simplify — one quality/cleanup pass; all requirements implemented)
+7.5 Comment cleanup (strip workflow references and redundant comments from the diff)
 8. Archive
 ```
 
@@ -77,9 +78,10 @@ Resume at the first incomplete step:
 | `openspec validate <name>` fails | **HARD GATE — stop, surface errors, do not proceed** |
 | `.superpowers/design.md` missing | Step 4 |
 | `.superpowers/design-brief.md` missing, or older than design.md | Step 4.5 — confirm design was reviewed first |
-| `.superpowers/plan.md` missing | Step 5 — confirm design was reviewed first |
+| `.superpowers/plan.md` missing, `plan-task-*.md` present | Step 5 Step C — write the index over the existing sub-plans; do not re-dispatch writers |
+| `.superpowers/plan.md` missing (no sub-plans) | Step 5 — confirm design was reviewed first |
 | Plan tasks incomplete (unticked Task checkboxes) | Step 6 — confirm plan was reviewed first |
-| All tasks complete, not simplified/archived | Step 7 (simplify) → Step 8 (archive) |
+| All tasks complete, not simplified/archived | Step 7 (simplify) → Step 7.5 (comment cleanup) → Step 8 (archive) |
 | Archived | Nothing to do |
 
 ## Step 1 — Setup (only before creating a new change)
@@ -176,9 +178,11 @@ No user gate here — the user approved the full design; the brief adds no decis
 
 **Design input for every Step 5 agent = `design-brief.md`, not design.md.** Writers open design.md only to resolve a gap in the brief, and then only the relevant section (grep it), never the whole file.
 
+**Plan layout — same on both paths, no consolidated plan.** Every Task lives in its own sub-plan `openspec/changes/<name>/.superpowers/plan-task-NN.md` (`NN` = global Task number, zero-padded). `plan.md` is a thin index the coordinator writes in Step C: header + one row per Task. One copy per Task: content lives only in its sub-plan, never in `plan.md`. Why: in Step 6 the SDD controller (the long-lived, most expensive context) reads the index instead of every Task's full block, opens a sub-plan only when two Tasks share a file, and each sub-plan doubles as the implementer's brief.
+
 ### 5.0 — Decide fan-out width
 
-Plan-writing scales with scope. One sonnet writer for a large plan risks output-limit truncation (hence the incremental-write guard) and runs serial. Above a threshold, fan out by spec requirement — one sub-plan file per requirement, indexed by `plan.md`.
+5.0 decides how many writers, not the file layout (always one sub-plan per Task). One sonnet writer for a large plan runs long and serial. Above a threshold, fan out by spec requirement — one writer per requirement, in parallel.
 
 Count the requirement blocks the change's delta specs add, modify, or remove — openspec writes each as a `### Requirement:` heading under `## ADDED|MODIFIED|REMOVED Requirements`. Count them with openspec's own parser, not a grep over the markdown: it matches the heading the way `openspec validate` does (case, spacing, bullet-form removals) and skips headings inside fenced examples. RENAMED deltas only retitle a requirement, so they don't count.
 
@@ -191,8 +195,8 @@ Let `R` = that count. A non-zero exit means openspec could not parse the change 
 
 | `R` | Path | Why |
 |---|---|---|
-| ≤ 6 | **5.A single writer** | One sonnet writer handles ≤6 coarse Tasks without truncation and is already coherent; below this, fan-out coordination outweighs the parallel gain. |
-| > 6 | **5.B fan-out + index** | Single writer would run long / risk output-limit truncation. Parallelize by requirement; `plan.md` indexes the sub-plans. |
+| ≤ 6 | **5.A single writer** | One sonnet writer handles ≤6 coarse Tasks and is already coherent; below this, fan-out coordination outweighs the parallel gain. |
+| > 6 | **5.B fan-out** | Single writer would run long. Parallelize by requirement. |
 
 Also take 5.B regardless of `R` if the design names many files per requirement and a single-writer plan would obviously blow the output limit (size, not just count, is the real trigger).
 
@@ -205,10 +209,12 @@ Dispatch `superpowers:writing-plans` in a fresh `Task` with `model: sonnet` (des
 The template enforces these rules — keep them whatever you do:
 - **Granularity:** 1 Task = 1 spec requirement (`### Requirement:` block) / vertical slice; MAY touch many files via the `Files:` block (Create/Modify/Test); ≤2 Tasks per requirement; ~15–30 min subagent runtime. Worked right/wrong example in the reference file.
 - **Task shape — pseudo code, not code** (the TASK SHAPE block in the reference file, pasted into every writer dispatch): Files, Interfaces, Data as field lists; per function/method/route an exact signature, a one-line purpose, and numbered pseudo-code steps wherever logic branches; Tests as `scenario → expected` lines — spec scenarios, design rules, plus ≤3 unstated failure modes. The Step 6 implementer writes the real code from it. Exact names, values, error strings verbatim; no TBD/TODO.
-- **Lean header:** Goal, Spec, Global Constraints — the fields Step 6's SDD reads. No Architecture / Tech Stack / Review Focus sections: design-brief.md holds the first two, and Review Focus items become Tests lines in their owning Task.
+- **No plan header in sub-plans:** the coordinator's Step C index carries Goal, Spec, Global Constraints. No Architecture / Tech Stack / Review Focus sections anywhere: design-brief.md holds the first two, and Review Focus items become Tests lines in their owning Task.
 - **Terse write-style.**
-- **Incremental write** (Sonnet output-limit guard): first Write = header only, then one Edit-append per Task. Never one big Write. Never echo plan content.
-- Return path + Task count only.
+- **One file per Task** (also the Sonnet output-limit guard): one Write per `plan-task-NN.md`, Tasks numbered in dependency order. Never a consolidated plan file, never two Tasks in one file. Never echo plan content.
+- Return sub-plan paths + Task count only.
+
+Then run Step C (C1–C2) to write the `plan.md` index. Skip C3: one writer already sequenced its own Tasks.
 
 **Hard override (5.A):** if the design contains genuinely novel architecture (no precedent in repo, new concurrency model, new protocol), upgrade plan writing to `model: opus`. Default Sonnet, escalate only on the same signals from the Step 6 Model Triage table.
 
@@ -216,9 +222,7 @@ When announcing the dispatch, state the chosen model: _"Dispatching plan writer 
 
 ### 5.B — Fan-out + index (R > 6)
 
-ONE parallel batch of writers → coordinator writes an index. One barrier, not three: no serial foundations pre-stage, no whole-plan rewrite at the end. Each writer's file IS the durable sub-plan for its Task; `plan.md` is a thin index pointing at them.
-
-**One copy per Task (the rule the rest of 5.B follows from):** a Task's content lives in exactly one file — its sub-plan. `plan.md` holds pointers, never content. That keeps the Step-C sync scoped to the sub-plans that actually conflict, and lets a Step 6 implementer read its own Task's file instead of a whole-plan blob.
+ONE parallel batch of writers → coordinator writes the index (Step C). One barrier, not three: no serial foundations pre-stage, no whole-plan rewrite at the end.
 
 **Output-isolation rule (non-negotiable):** every writer writes its OWN file `openspec/changes/<name>/.superpowers/plan-task-NN.md`. NEVER point two subagents at the same file — concurrent writes clobber. The coordinator owns `plan.md` (the index) and is the only writer of it.
 
@@ -234,11 +238,13 @@ ONE parallel batch of writers → coordinator writes an index. One barrier, not 
 - **Requirement writers:** one subagent per requirement counted in 5.0, each emitting its FINAL-FORM `### Task N` block (global number from Step A) → `plan-task-NN.md` (`NN` = that global number, zero-padded).
 - **Model — sonnet ceiling.** Design.md is LOCKED; writing the plan is translation, not architecture, so writers do NOT need opus. Default `sonnet`; drop to `haiku` only for trivially mechanical requirements. Never opus or fable here — a heavy-reasoning writer just stalls the whole parallel batch behind the slowest agent. (Genuine novel-concurrency judgment lives in Step C reconciliation, not in writing.) Announce model per requirement.
 - **Context:** full specs + design-brief.md + the shared-files list from Step A (so the writer references those files, never redefines them) + the writer's assigned global Task number.
-- Same TASK SHAPE and granularity as 5.A (1 Task per requirement, may touch many files via the `Files:` block), terse write-style, return path only. The write *mechanic* differs (one sub-plan file, final-form numbered heading, no plan header — the index carries it) — do NOT carry over 5.A's plan.md header / incremental-append sequence.
+- Same TASK SHAPE and granularity as 5.A (1 Task per requirement, may touch many files via the `Files:` block), terse write-style, one sub-plan file, no plan header, return path only. Differs from 5.A only in that each writer gets ONE Task with a coordinator-assigned global number.
 
 **Use the 5.B Step-B writer template in `references/step5-dispatch.md`** (also the basis for the foundations writer).
 
-**Step C — Index + sync (you, inline; subagent ONLY on real conflict).** Sub-plans are already final-form and globally numbered, so there is nothing to assemble: they stay exactly as written and are never merged into one file, copied into `plan.md`, or deleted. Your only outputs here are the index and, if two sub-plans collide, the sync.
+### Step C — Index (both paths) + sync (5.B only)
+
+You, inline; subagent ONLY on real conflict. Sub-plans are already final-form and globally numbered, so there is nothing to assemble: they stay exactly as written and are never merged into one file, copied into `plan.md`, or deleted. Your only outputs here are the index and, if two sub-plans collide, the sync.
 
 **C1 — Read each sub-plan's `Files:` block.** One pass; you need it for both the index and the overlap check.
 
@@ -263,18 +269,16 @@ Shared files (owned by Task 1): <paths from Step A, or "none">
 | 2 | `plan-task-02.md` | <requirement title> | `src/foo.ts`, `test/foo.test.ts` | 1 |
 ```
 
-**C3 — Sync overlapping sub-plans.** The ONE coherence check: do two sub-plans `Modify` the same file at overlapping ranges?
+**C3 — Sync overlapping sub-plans (5.B only).** The ONE coherence check: do two sub-plans `Modify` the same file at overlapping ranges?
 
 - **No** → done. Index + sub-plans are the plan.
 - **Yes** → dispatch ONE sync subagent (**5.B Step-C template in `references/step5-dispatch.md`**) scoped to ONLY the conflicting Modify blocks — merge or sequence them + note the dependency in the dependent Task. Re-read design-brief.md for concurrency / shared-state flags first → `sonnet` default, `opus` if flagged (this is the one place reconciliation judgment justifies opus). It edits those blocks **in the conflicting `plan-task-NN.md` files in place** — never the index, never a non-conflicting sub-plan, never a re-emitted whole plan. When it returns, update the index's **Depends on** column with any sequencing it introduced.
 
 **HARD GATE — plan review.** After the plan is written, STOP. Do NOT proceed to Step 6. Tell the user:
 
-> 5.A: "Plan written to `openspec/changes/<name>/.superpowers/plan.md` — <N> tasks. Review it. Reply to approve, or give changes. Execution waits for your go-ahead."
->
-> 5.B: "Plan index at `openspec/changes/<name>/.superpowers/plan.md` — <N> tasks, one sub-plan each (`plan-task-NN.md`). Review it. Reply to approve, or give changes. Execution waits for your go-ahead."
+> "Plan index at `openspec/changes/<name>/.superpowers/plan.md` — <N> tasks, one sub-plan each (`plan-task-NN.md`). Review it. Reply to approve, or give changes. Execution waits for your go-ahead."
 
-The user needs time to read the plan before subagents start writing code. Only proceed to Step 6 after the user explicitly approves. If they request changes, revise the affected file — plan.md (5.A) or the specific `plan-task-NN.md` plus the index row (5.B) — or re-dispatch that writer, then re-surface the gate. Do not interpret silence or an unrelated message as approval — wait for a clear go-ahead.
+The user needs time to read the plan before subagents start writing code. Only proceed to Step 6 after the user explicitly approves. If they request changes, revise the specific `plan-task-NN.md` plus its index row — or re-dispatch that writer, then re-surface the gate. Do not interpret silence or an unrelated message as approval — wait for a clear go-ahead.
 
 ## Step 6 — Execute (only after plan approved)
 
@@ -285,14 +289,15 @@ Invoke **superpowers:subagent-driven-development** with the plan path AND the pr
 ```
 Plan file: openspec/changes/<name>/.superpowers/plan.md
 
-[5.B only — add verbatim when the plan is an index:]
 plan.md is an INDEX: header (Goal, Spec, Global Constraints) + one row
 per Task pointing at sub-plan `plan-task-NN.md` (same directory), which
 holds Task N's whole block. Pass plan.md as PLAN_FILE to sdd-workspace
 and review-package — one workspace, one ledger. Skip task-brief: Task
 N's sub-plan IS its brief; pass its path as BRIEF_FILE. Pre-flight
-scan: the index's Files touched + Depends on columns are the
-shared-file map — open a sub-plan only for a pair that shares a file.
+scan: same-file overlaps were already synced at plan time (chaining
+Step C3) and sequenced in the Depends on column — do not re-check them.
+Scan interfaces only: match each sub-plan's Interfaces Consumes against
+the Produces it names; open only the sub-plans involved.
 plan.md stays an index; Task content never goes into it.
 
 Tasks carry signatures + pseudo code, not code: the implementer writes
@@ -311,8 +316,8 @@ chaining-openspec-superpowers references/step6-dispatch.md into every
 implementer, task-reviewer, and re-reviewer dispatch. Ledger lines and
 pre-flight rows: terse fragments.
 
-When ledgering `Task N: complete`, tick Task N's checkbox in the file
-that holds it (plan.md, or its plan-task-NN.md).
+When ledgering `Task N: complete`, tick Task N's checkbox in its
+plan-task-NN.md.
 
 After the last task: print the ledger's `Ruling:` lines, one per line
 (skip if none), delete the SDD workspace, and hand back to chaining
@@ -373,7 +378,36 @@ Invoke the **/simplify** skill ONCE over the whole change:
 
 This is the single code-quality / cleanup gate — reuse, simplification, efficiency, altitude — replacing the old per-task code-quality review and the final whole-implementation review. It reviews the accumulated branch diff and applies the fixes.
 
-`/simplify` is quality-only; it does NOT hunt bugs (spec compliance was already verified per task — run `/code-review` separately if you want a correctness sweep). Safe to re-run: a second pass just finds fewer cleanups, so on resume run it regardless. Once it settles, proceed to Step 8.
+`/simplify` is quality-only; it does NOT hunt bugs (spec compliance was already verified per task — run `/code-review` separately if you want a correctness sweep). Safe to re-run: a second pass just finds fewer cleanups, so on resume run it regardless. Once it settles, proceed to Step 7.5.
+
+## Step 7.5 — Comment cleanup (before archive)
+
+Implementers see task numbers, plan steps, and design-brief wording, and leak them into code comments. Those references mean nothing once the change is archived and mislead later sessions. Prune them now, over the whole change diff (same scope `/simplify` reviewed: committed changes since the merge-base with the default branch, plus uncommitted).
+
+Dispatch ONE `Task` on `model: sonnet` (haiku if the diff is small) with these rules. It edits comments only — never code, strings, or docstrings that document a public API contract.
+
+```
+COMMENT CLEANUP — scope: comments added or changed in this change's diff only.
+
+1. Remove workflow references. Delete or rewrite any comment that mentions:
+   task/step numbers ("Task 3", "Step 2"), the plan, spec, design, design-brief,
+   proposal, requirement IDs, the openspec change name, review feedback, or
+   "as decided"/"per design" phrasing. If the comment also carries a real
+   "why", keep only the why, stated on its own terms.
+2. Remove comments that restate what the code does (names and types already say it).
+3. Keep only comments that explain a non-obvious why: a constraint, workaround,
+   invariant, or surprising behavior. Make each one short — one line where possible.
+4. Match the comment density and style of the surrounding pre-existing code.
+5. Leave pre-existing comments (not in the diff) alone.
+
+Leak search to start from (added lines only):
+  git diff <merge-base> -U0 | grep -nE '^\+.*(Task [0-9]|Step [0-9]|per (the )?(design|plan|spec|brief)|design[- ]brief|openspec|requirement|<change-name>)'
+Then read every remaining added comment for rules 2–3.
+
+Report: files touched + count of comments removed / shortened. Nothing else.
+```
+
+After it returns, re-run the project's tests/linters if comment syntax could break anything (e.g. removed directive comments). Then proceed to Step 8.
 
 ## Step 8 — Archive
 
@@ -416,7 +450,7 @@ openspec archive <name>
 - **Design-brief.md** = caveman-compressed agent copy of the approved design (Step 4.5). Steps 5–6 read this.
 - **Plan** = terse signatures + pseudo code per the TASK SHAPE — never full code; implementers write the code. The writers' terse write-style is the only compression pass.
 - **Step 6 reports** (implementer report files, reviewer and re-reviewer replies, ledger) = agent-to-agent context in the `references/step6-dispatch.md` shapes. Never relay them to the user.
-- **End-of-orchestration summary** = SKIP. User reads ticked tasks in plan.md (5.A) or the sub-plans it indexes (5.B). Output at most one line: `Archived <name>. <N> tasks done. Plan: <path>.`
+- **End-of-orchestration summary** = SKIP. User reads ticked tasks in the sub-plans plan.md indexes. Output at most one line: `Archived <name>. <N> tasks done. Plan: <path>.`
 - Per-step status updates during run = one terse line each (e.g. `Step 4 done. Design at <path>.`).
 
 ## Delegation Reference
@@ -430,6 +464,7 @@ openspec archive <name>
 | 5 | `superpowers:writing-plans` | superpowers plugin |
 | 6 | `superpowers:subagent-driven-development` | superpowers plugin |
 | 7 | `/simplify` | built-in (Claude Code) |
+| 7.5 | comment-cleanup `Task` (sonnet) | — |
 
 If any delegate skill is missing, jump back to Step 0 and surface the install commands. Do not try to recreate the step inline.
 
@@ -446,6 +481,7 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Reaching for Fable because a task "looks hard" — one Opus signal is not the Fable gate, and Fable burns ~2× Opus per token | Fable needs 3+ Opus signals AND long-horizon/novel work. Otherwise Opus. Never Fable for reviews or plan writing |
 | Retrying Fable after a quota/availability failure, or silently dropping the task | Re-dispatch the same task on `model: opus` and announce the downgrade; Opus is the standing top tier for the rest of the run |
 | Calling `openspec archive` without running `/simplify` first | Step 7 runs `/simplify` once (the sole quality/cleanup gate) before Step 8 archive |
+| Archiving with code comments that cite Task numbers, plan steps, or design decisions — meaningless after archive, confusing to later sessions | Step 7.5 strips workflow references and redundant comments from the diff before Step 8 |
 | Letting `superpowers:brainstorming` auto-chain into `superpowers:writing-plans` — plan generation runs on Opus by inheritance even though it's mechanical | Tell brainstorming to STOP after design.md (Step 4), then dispatch writing-plans as its own Task on `model: sonnet` (Step 5) |
 | Plan writers / implementers fed the full design.md — rationale, risks, alternatives re-read by every agent; input tokens multiply with fan-out | Step 4.5 condenses once into design-brief.md; Steps 5–6 read the brief, open design.md only for a specific gap |
 | Condensing by overwriting or trimming design.md — user loses the human version | Condenser writes a separate design-brief.md; design.md is never touched |
@@ -453,11 +489,11 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Dispatching Step 5 right after design.md is written — user never got to review the design | Step 4 ends at a HARD GATE. Stop, ask the user to review design.md, wait for explicit approval before Step 5 |
 | Dispatching Step 6 right after plan.md is written — user never got to review the plan | Step 5 ends at a HARD GATE. Stop, ask the user to review plan.md, wait for explicit approval before Step 6 |
 | Letting writing-plans scope each Task to a single function / single test case — many tiny Tasks, each spinning a fresh subagent, execution drags | Step 5 dispatch prompt MUST include the TASK GRANULARITY OVERRIDE. One Task = one business requirement / vertical slice, may touch multiple files, ~15-30 min subagent runtime, ≤2 Tasks per spec `## Requirement` |
-| Step 5 subagent writes the whole plan in one Write — Sonnet hits its output token limit, plan.md truncates mid-Task | Step 5 dispatch prompt MUST include the INCREMENTAL WRITE rule. First Write = header only, then one Edit-append per Task group. Never batch all Tasks into one call |
+| Step 5 writer produces a consolidated plan — all Tasks in one file; SDD controller then reads every Task's full block, and one big Write risks Sonnet's output limit | Every Task in its own `plan-task-NN.md`, one Write each. Only the coordinator writes `plan.md`, as an index |
 | Step 5 subagent echoes plan content back into its response — doubles output, recompounds the limit hit | Return ONLY path + Task count. Plan lives in the file, never in the message |
 | Large scope (R>6) written by one sonnet subagent — truncates / drags serially | Run Step 5.0 first: count requirements. R>6 → fan out (5.B). R≤6 → single writer (5.A) |
 | Fan-out (5.B) points >1 subagent at the same file — concurrent writes clobber | Each writer owns its own `plan-task-NN.md`. Only the coordinator writes `plan.md` (the index); the Step-C sync subagent touches only the conflicting sub-plans |
-| Assembling the 5.B sub-plans — merging them into one file, copying their content into `plan.md`, or deleting them once indexed | One copy per Task. Sub-plans hold the content and stay put; `plan.md` holds index rows only: Task # → sub-plan path → requirement → files touched → depends on |
+| Assembling the sub-plans — merging them into one file, copying their content into `plan.md`, or deleting them once indexed | One copy per Task. Sub-plans hold the content and stay put; `plan.md` holds index rows only: Task # → sub-plan path → requirement → files touched → depends on |
 | Re-introducing a serial foundations pre-stage or a whole-plan stitch rewrite — fan-out cost ≈ a full single-writer pass on top of the writers, never beats 5.A | Foundations writer rides in the SAME parallel batch (peer, not prerequisite); coordinator assigns global Task numbers + extracts shared-file paths from design-brief.md inline; assembly is an index over final-form sub-plans, not a rewrite |
 | Fan-out writer dispatched on opus or fable — slow reasoning stalls the whole parallel batch behind it | Sonnet ceiling for writers (design is locked → writing is translation). haiku for trivial, never opus or fable. Opus only for the Step-C reconcile when concurrency flagged |
 | Coordinator skips the overlapping-Modify check before declaring done — unsynced shared-file edits ship | While reading the `Files:` blocks for the index, check for two sub-plans Modifying the same file at overlapping ranges → dispatch the Step-C sync subagent scoped to those blocks only |
@@ -465,7 +501,7 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Fanned out below threshold (R≤6) — coordination overhead, no gain | Use 5.A single writer. Fan-out only pays above R>6 (or when plan size alone would truncate) |
 | Plan writer emits full code blocks (writing-plans' default) — plan bloats, then the implementer writes the same code again | Every writer dispatch carries the TASK SHAPE block: signatures + one-line purpose + pseudo code + Tests lines. Real code is the Step 6 implementer's job |
 | SDD dispatches keep their templates' human-facing report formats (narrative, strengths, self-review prose) — tokens nobody reads | Swap the `references/step6-dispatch.md` blocks into every implementer, task-reviewer, and re-reviewer dispatch |
-| Running SDD's `task-brief` against a 5.B index plan.md — `task N not found` | 5.B: Task N's sub-plan file IS its brief. plan.md goes only to sdd-workspace / review-package |
+| Running SDD's `task-brief` against the index plan.md — `task N not found` | Task N's sub-plan file IS its brief. plan.md goes only to sdd-workspace / review-package |
 
 ## Red Flags — Stop and Recheck
 
@@ -481,20 +517,21 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 - About to dispatch an SDD implementer, task reviewer, or re-reviewer without swapping in its `references/step6-dispatch.md` block.
 - About to dispatch a Step 5 writer without the TASK SHAPE block — writing-plans defaults to full code blocks.
 - About to call `openspec archive` without running `/simplify` first (Step 7).
+- About to call `openspec archive` without the Step 7.5 comment cleanup.
 - About to let brainstorming auto-chain into writing-plans (plan generation will inherit Opus). Step 4 must end at design.md; Step 5 dispatches plan writing on Sonnet.
 - About to pass design.md (whole) to a Step 5 writer or Step 6 implementer instead of design-brief.md — or to dispatch Step 5 with the brief missing or older than design.md.
 - About to edit or delete design.md while condensing — the brief is a separate file.
 - About to dispatch Step 5 without an explicit user approval of design.md. Step 4 ends at a HARD GATE — the user must review the design first.
 - About to dispatch Step 6 without an explicit user approval of plan.md. Step 5 ends at a HARD GATE — the user must review the plan first.
 - About to dispatch Step 5 without the TASK GRANULARITY OVERRIDE in the prompt — writing-plans will produce one Task per 2-5 min atomic action and execution will crawl.
-- About to dispatch Step 5 without the INCREMENTAL WRITE rule in the prompt — the subagent writes the whole plan in one Write, hits Sonnet's output limit, and plan.md truncates.
+- About to let a Step 5 writer put Tasks into plan.md or into one shared file — every Task gets its own `plan-task-NN.md`; plan.md is the coordinator's index only.
 - About to dispatch Step 5 without first counting requirements (Step 5.0) — can't pick single-writer vs fan-out path.
 - About to count requirements with a markdown grep instead of `openspec show --deltas-only` — the 5.0 count must come from openspec's parser.
 - About to fan out (5.B) pointing more than one subagent at the same file — concurrent writes clobber. Each writer owns a `plan-task-NN.md`; only the coordinator writes the `plan.md` index.
-- About to assemble the 5.B sub-plans — merge them into one file, copy their content into the index, or delete them once indexed. All three break one-copy-per-Task.
+- About to assemble the sub-plans — merge them into one file, copy their content into the index, or delete them once indexed. All three break one-copy-per-Task.
 - About to dispatch a serial foundations pre-stage, or a whole-plan stitch rewrite — both reintroduce the barrier/duplicate-write tax that makes fan-out lose to 5.A. Foundations is a peer in the one parallel batch; assembly is an index over final-form sub-plans.
 - About to dispatch a 5.B writer on opus or fable — sonnet ceiling; opus only for the Step-C reconcile.
-- About to write the index and declare done without checking for overlapping shared-file Modifies — run the Step-C sync if any exist.
+- About to write a 5.B index and declare done without checking for overlapping shared-file Modifies — run the Step-C sync if any exist.
 - About to fan out below the R>6 threshold, or single-write a plan large enough to truncate — wrong path for the scope.
 
 All of these mean: stop, re-read this skill, and resume at the correct step.

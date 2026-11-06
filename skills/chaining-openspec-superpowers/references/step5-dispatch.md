@@ -5,6 +5,10 @@ Verbatim `Task()` templates for chaining-openspec-superpowers **Step 5**
 SKILL.md Step 5 — this file is the copy-paste reference. Load on demand at
 dispatch time.
 
+Both paths produce the same layout: one `plan-task-NN.md` per Task, then the
+coordinator writes the `plan.md` index (SKILL.md Step C). No writer ever
+writes `plan.md`.
+
 - 5.A single-writer dispatch → use the **5.A template**.
 - 5.B per-requirement fan-out → use the **Step-B writer template** (also the
   basis for the foundations writer in the same parallel batch).
@@ -116,15 +120,14 @@ Task(
     The WHAT and the HOW are both already decided. Your job is purely
     to translate the design into Tasks of the TASK SHAPE below.
 
-    Save plan to: openspec/changes/<name>/.superpowers/plan.md
-
-    PLAN HEADER — replaces writing-plans' header. Exactly:
-      # Plan — <change-name>
-      **Goal:** <one sentence>
-      **Spec:** openspec/changes/<name>/specs/ + .superpowers/design-brief.md
-      ## Global Constraints
-      - <rule binding more than one Task, exact value copied from
-        spec/design> (one line each; "- none" if none)
+    OUTPUT LAYOUT — replaces writing-plans' single plan file and header:
+    - One file per Task:
+        openspec/changes/<name>/.superpowers/plan-task-NN.md
+      (NN = Task number, zero-padded; number Tasks in dependency order).
+    - Each file holds exactly one `### Task N` block and must stand alone:
+      it is that Task's execution brief.
+    - No plan header, no plan.md, no consolidated file. The orchestrator
+      writes the plan.md index afterwards.
 
     TASK GRANULARITY OVERRIDE — coarser than writing-plans default:
     - One Task = one cohesive business requirement / capability /
@@ -157,19 +160,17 @@ Task(
     - Keep signatures, file paths, names, values, error strings VERBATIM.
     - No prose between Tasks. No restating the design.
 
-    INCREMENTAL WRITE — MANDATORY (Sonnet output-limit guard):
-    - First Write: create plan.md with the PLAN HEADER only.
-    - Then ONE Edit-append per Task (Task N's full block, then Task N+1,
-      …). Never batch all Tasks into one tool call.
-    - Each tool call carries only the chunk it writes — never restate
-      earlier Tasks or the design in a later call.
+    ONE WRITE PER TASK FILE — MANDATORY (Sonnet output-limit guard):
+    - One Write call per plan-task-NN.md. Never batch Tasks into one call.
+    - Each call carries only its own Task — never restate earlier Tasks
+      or the design.
     - NEVER echo plan content into your response text.
 
     Skip writing-plans' Execution Handoff — the orchestrator owns review
     and execution.
 
-    Return: ONLY the path to the saved plan and Task count. No prose
-    summary. Do NOT echo plan content.
+    Return: ONLY the sub-plan paths and Task count. No prose summary.
+    Do NOT echo plan content.
   """
 )
 ```
