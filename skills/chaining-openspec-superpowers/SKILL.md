@@ -138,9 +138,17 @@ Write the design in normal prose. DO NOT apply caveman/compression —
 the design is the human review artifact and must stay thorough,
 comprehensive, and explanatory. Diagrams, trade-off discussion, and
 rationale all belong here.
+
+Raw code stays out of design.md. Any code you generate (function or
+class bodies, algorithms, schema DDL, config, longer snippets) goes in
+its own raw file: openspec/changes/<name>/.superpowers/code-refs/<slug>.<ext>
+— code only, native extension, no markdown fence, one comment line at
+the top saying what it is. In design.md, explain it in prose and link it
+as `code-refs/<slug>.<ext>`. No fenced code blocks in design.md; one-line
+signatures inline are fine.
 ```
 
-Create the `.superpowers/` directory if it doesn't exist.
+Create the `.superpowers/` directory (and `code-refs/`, when there is code) if it doesn't exist.
 
 **Break the brainstorming → writing-plans auto-chain.** `superpowers:brainstorming` will normally hand off to `superpowers:writing-plans` in the same session, which means plan generation inherits the parent (usually Opus). Plan generation is mostly mechanical (locked design → Tasks of signatures + pseudo code) and should run on Sonnet. Add this to the step 4 args:
 
@@ -163,6 +171,7 @@ Dispatch one condenser in a fresh `Task` with `model: sonnet` (**template in `re
 
 - **Never edit, move, or delete design.md.** It stays the human version and the source of truth on conflict.
 - **Keep:** components + responsibilities, interfaces / signatures / schemas, flows, ordering, concurrency rules, exact names / paths / values / error strings, constraints, requirement-to-component map, testing strategy.
+- **Code is cited, never copied:** raw code lives in `.superpowers/code-refs/` (written at Step 4). The brief cites each file that matters as `code-refs/<file>` + one clause on how to use it (`implement as is`, `shape only`, `extend`). The condenser never pastes, edits, moves, or deletes those files. Signatures stay in the brief; the refs hold bodies. A fenced code block still inside an older design.md is kept in the brief verbatim.
 - **Drop:** open questions, spec issues found, risks, "Understanding" narrative, revision history, rationale paragraphs, rejected-alternatives tables, long "why this and not that", duplicated explanations, big ASCII diagrams (at most one small one, only if a slice truly needs it), motivational text, the owner-ruling story.
 - **One-clause reason only** where an implementer could otherwise "fix" something wrongly (e.g. "square collision body, not lit cells: do not change").
 - **No restated spec scenarios** — refer as `<Requirement header> / <Scenario name>`.
@@ -176,7 +185,7 @@ No user gate here — the user approved the full design; the brief adds no decis
 
 **Precondition:** the Step 4 design-review gate passed — the user explicitly approved design.md — and Step 4.5 wrote a design-brief.md no older than design.md. If resuming in a fresh session at this step (design.md exists, plan.md missing), confirm with the user that the design was reviewed before dispatching. Do not auto-run.
 
-**Design input for every Step 5 agent = `design-brief.md`, not design.md.** Writers open design.md only to resolve a gap in the brief, and then only the relevant section (grep it), never the whole file.
+**Design input for every Step 5 agent = `design-brief.md` + the `code-refs/` files it cites, not design.md.** Writers open design.md only to resolve a gap in the brief, and then only the relevant section (grep it), never the whole file.
 
 **Plan layout — same on both paths, no consolidated plan.** Every Task lives in its own sub-plan `openspec/changes/<name>/.superpowers/plan-task-NN.md` (`NN` = global Task number, zero-padded). `plan.md` is a thin index the coordinator writes in Step C: header + one row per Task. One copy per Task: content lives only in its sub-plan, never in `plan.md`. Why: in Step 6 the SDD controller (the long-lived, most expensive context) reads the index instead of every Task's full block, opens a sub-plan only when two Tasks share a file, and each sub-plan doubles as the implementer's brief.
 
@@ -208,7 +217,7 @@ Dispatch `superpowers:writing-plans` in a fresh `Task` with `model: sonnet` (des
 
 The template enforces these rules — keep them whatever you do:
 - **Granularity:** 1 Task = 1 spec requirement (`### Requirement:` block) / vertical slice; MAY touch many files via the `Files:` block (Create/Modify/Test); ≤2 Tasks per requirement; ~15–30 min subagent runtime. Worked right/wrong example in the reference file.
-- **Task shape — pseudo code, not code** (the TASK SHAPE block in the reference file, pasted into every writer dispatch): Files, Interfaces, Data as field lists; per function/method/route an exact signature, a one-line purpose, and numbered pseudo-code steps wherever logic branches; Tests as `scenario → expected` lines — spec scenarios, design rules, plus ≤3 unstated failure modes. The Step 6 implementer writes the real code from it. Exact names, values, error strings verbatim; no TBD/TODO.
+- **Task shape — pseudo code, not code** (the TASK SHAPE block in the reference file, pasted into every writer dispatch): Files, Interfaces, Data as field lists; per function/method/route an exact signature, a one-line purpose, and numbered pseudo-code steps wherever logic branches; Tests as `scenario → expected` lines — spec scenarios, design rules, plus ≤3 unstated failure modes. The Step 6 implementer writes the real code from it. Exact names, values, error strings verbatim; no TBD/TODO. A step may point at a `code-refs/<file>` the brief cites instead of re-writing its logic.
 - **No plan header in sub-plans:** the coordinator's Step C index carries Goal, Spec, Global Constraints. No Architecture / Tech Stack / Review Focus sections anywhere: design-brief.md holds the first two, and Review Focus items become Tests lines in their owning Task.
 - **Terse write-style.**
 - **One file per Task** (also the Sonnet output-limit guard): one Write per `plan-task-NN.md`, Tasks numbered in dependency order. Never a consolidated plan file, never two Tasks in one file. Never echo plan content.
@@ -303,7 +312,8 @@ plan.md stays an index; Task content never goes into it.
 Tasks carry signatures + pseudo code, not code: the implementer writes
 the real code and tests from them.
 
-Design context for implementers and reviewers = .superpowers/design-brief.md.
+Design context for implementers and reviewers = .superpowers/design-brief.md
+plus the .superpowers/code-refs/ files it and the sub-plans cite.
 Open design.md only to resolve a gap, and only the relevant section.
 
 Review scope: the task reviewer checks spec compliance only. Its code
@@ -446,7 +456,8 @@ openspec archive <name>
 
 ## Output Discipline
 
-- **Design.md** = thorough prose. User reviews this. Agents never read it whole.
+- **Design.md** = thorough prose, no fenced code. User reviews this. Agents never read it whole.
+- **Code-refs/** = raw code the design agent generated, one file per excerpt, written at Step 4. Brief and sub-plans cite these files; nobody copies them.
 - **Design-brief.md** = caveman-compressed agent copy of the approved design (Step 4.5). Steps 5–6 read this.
 - **Plan** = terse signatures + pseudo code per the TASK SHAPE — never full code; implementers write the code. The writers' terse write-style is the only compression pass.
 - **Step 6 reports** (implementer report files, reviewer and re-reviewer replies, ledger) = agent-to-agent context in the `references/step6-dispatch.md` shapes. Never relay them to the user.
@@ -484,6 +495,7 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Archiving with code comments that cite Task numbers, plan steps, or design decisions — meaningless after archive, confusing to later sessions | Step 7.5 strips workflow references and redundant comments from the diff before Step 8 |
 | Letting `superpowers:brainstorming` auto-chain into `superpowers:writing-plans` — plan generation runs on Opus by inheritance even though it's mechanical | Tell brainstorming to STOP after design.md (Step 4), then dispatch writing-plans as its own Task on `model: sonnet` (Step 5) |
 | Plan writers / implementers fed the full design.md — rationale, risks, alternatives re-read by every agent; input tokens multiply with fan-out | Step 4.5 condenses once into design-brief.md; Steps 5–6 read the brief, open design.md only for a specific gap |
+| design.md carries the design agent's raw code inline — every agent that needs the code re-reads the long file | Step 4 preset moves raw code to `.superpowers/code-refs/<slug>.<ext>`; design.md links it. Brief and sub-plans cite the file |
 | Condensing by overwriting or trimming design.md — user loses the human version | Condenser writes a separate design-brief.md; design.md is never touched |
 | Revising design.md after Step 4.5 without re-condensing — writers plan from a stale brief | Any design.md change re-runs Step 4.5 before Step 5 |
 | Dispatching Step 5 right after design.md is written — user never got to review the design | Step 4 ends at a HARD GATE. Stop, ask the user to review design.md, wait for explicit approval before Step 5 |
@@ -520,6 +532,7 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 - About to call `openspec archive` without the Step 7.5 comment cleanup.
 - About to let brainstorming auto-chain into writing-plans (plan generation will inherit Opus). Step 4 must end at design.md; Step 5 dispatches plan writing on Sonnet.
 - About to pass design.md (whole) to a Step 5 writer or Step 6 implementer instead of design-brief.md — or to dispatch Step 5 with the brief missing or older than design.md.
+- About to open design.md to fetch code for a plan or an implementation — the code is in `code-refs/`.
 - About to edit or delete design.md while condensing — the brief is a separate file.
 - About to dispatch Step 5 without an explicit user approval of design.md. Step 4 ends at a HARD GATE — the user must review the design first.
 - About to dispatch Step 6 without an explicit user approval of plan.md. Step 5 ends at a HARD GATE — the user must review the plan first.

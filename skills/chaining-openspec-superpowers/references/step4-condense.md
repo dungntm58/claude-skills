@@ -15,6 +15,8 @@ Task(
     Read (do not ask the user):
     - openspec/changes/<name>/.superpowers/design.md  (approved; human version)
     - openspec/changes/<name>/specs/                  (requirement + scenario names)
+    - openspec/changes/<name>/.superpowers/code-refs/ (list only; raw code the
+      design agent wrote — do not open, copy, edit, move, or delete)
 
     Write: openspec/changes/<name>/.superpowers/design-brief.md
     NEVER edit, move, or delete design.md — it stays the human version.
@@ -30,6 +32,7 @@ Task(
     - Constraints and invariants; dependency order between parts
     - Testing strategy: what to test where, fixtures, tools
     - Per requirement: which components implement it
+    - Code: cite the code-refs file, never copy it (see CODE REFS)
 
     DROP:
     - Open questions, spec issues found, risks
@@ -51,6 +54,15 @@ Task(
     answered, keep the answer, drop the question. If one is still open,
     keep one line `OPEN: <question>` — never invent an answer.
 
+    CODE REFS — design.md links raw code files in code-refs/ (beside it):
+    - In the brief, cite each one that matters as `code-refs/<file>` + one
+      clause on how to use it ("implement as is", "shape only", "extend").
+      Never paste its content.
+    - Signatures, types, schemas stay verbatim in the brief, each stated
+      once; code-refs hold the bodies and longer excerpts.
+    - A fenced code block still inside design.md (older design): keep it
+      in the brief verbatim.
+
     STYLE — caveman-compressed:
     - Drop articles, filler, hedging, pleasantries. Fragments OK.
     - Bullets and short field lists over paragraphs.
@@ -62,6 +74,7 @@ Task(
       # Design brief — <change-name>
       Source: design.md (approved). Brief wins for plan/implementation;
       design.md only to resolve a gap.
+      Code: code-refs/ beside this file; cite by path, never paste.
       ## Components
       ## Interfaces & data
       ## Flows & rules

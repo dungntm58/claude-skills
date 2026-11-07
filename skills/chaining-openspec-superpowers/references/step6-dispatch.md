@@ -15,6 +15,14 @@ Everything above the swap point stays as SDD wrote it.
 ## Implementer — replaces `## After Review Findings` through the end of the prompt
 
 ```
+## Design code
+
+If the brief or Task cites a `code-refs/<file>` (relative to
+`.superpowers/`), read it before writing. It is raw code from the design
+agent: follow its logic, names, and signatures, fitted to the repo's
+conventions; say where you departed in Deviations. Never open design.md
+for code.
+
 ## Report
 
 Your report is read only by agents: the controller, the task reviewer,

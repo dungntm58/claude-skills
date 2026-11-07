@@ -48,6 +48,12 @@ A Task block is these parts, in order:
    (`null → NotFoundError("…")`).
    Trivial entries (getter, wiring, re-export): signature + purpose
    line only.
+   When design-brief.md cites a `code-refs/<file>` for the entry (path is
+   relative to `.superpowers/`, where this file lives), point at it
+   instead of re-writing its logic: `per code-refs/<file>` + how to use
+   it ("implement as is", "shape only", "extend"). Never paste its
+   content and never open design.md for code. Anything this Task changes
+   from the cited code is still written out.
 6. **Tests:** `<test file>` — one line per case, `<scenario> → <expected>`:
    each spec scenario and each design-brief.md rule this Task implements,
    plus at most 3 failure modes neither states (bad input, empty,
@@ -83,6 +89,7 @@ Example — right shape, right altitude:
 1. row = find by sha256(token); none → InvalidTokenError("invalid token")
 2. expires_at < now or used_at set → ExpiredTokenError("token expired")
 3. one transaction: set user password hash; set row used_at = now
+   (per `code-refs/confirm-reset-tx.ts`, implement as is)
 
 **`POST /auth/forgot-password`** `{ email }` — requestReset → always 202
 **`POST /auth/reset-password`** `{ token, password }` — confirmReset → 204;
@@ -115,7 +122,7 @@ Task(
     - openspec/changes/<name>/specs/        (locked requirements)
     - openspec/changes/<name>/.superpowers/design-brief.md  (locked technical
       design, condensed; open design.md only to resolve a gap, and only
-      the relevant section)
+      the relevant section) and the code-refs/ files it cites
 
     The WHAT and the HOW are both already decided. Your job is purely
     to translate the design into Tasks of the TASK SHAPE below.
@@ -205,7 +212,8 @@ Task(
     Read first (do not ask the user):
     - openspec/changes/<name>/specs/                 (all locked requirements)
     - openspec/changes/<name>/.superpowers/design-brief.md (locked design,
-      condensed; design.md only for a gap, relevant section only)
+      condensed; design.md only for a gap, relevant section only) and the
+      code-refs/ files it cites
     Shared files already owned by Task 1 (reference, do NOT redefine):
     - <shared-file path list from design-brief.md, or "none">
 
