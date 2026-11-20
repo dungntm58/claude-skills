@@ -124,6 +124,15 @@ openspec validate <name>
 
 ## Step 4 — Technical design
 
+**Design model — Opus floor, Fable allowed.** Design is the one step where reasoning depth pays for itself: every later step translates design.md, so a weak design is copied into every Task. Brainstorming runs inline in this session (it talks to the user), so the design runs on the session model — there is no `model:` parameter to pass. Before invoking it:
+
+- Session on **Fable** → keep it, as long as Fable quota remains.
+- Session on **Opus** → proceed. Do not ask to move up to Fable; Fable is allowed here, not required.
+- Session on **Sonnet or Haiku** → STOP and ask the user to switch: _"Design runs on Opus (or Fable if quota remains). Run `/model opus` (or `/model fable`), then reply to continue."_ Do not start brainstorming below Opus.
+- **Fable quota runs out mid-design** (usage-limit error, model unavailable) → ask the user to `/model opus` and resume the design from where it stopped. Do not retry Fable, and do not finish the design on a lower tier.
+
+Fable here does not lift the Fable gate anywhere else: plan writing, reviews, and implementers still follow the Step 6 Model Triage rules.
+
 Invoke **superpowers:brainstorming** with this preset context (pass as skill args):
 
 ```
@@ -490,6 +499,7 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 | Skipping state detection and restarting from step 1 | Always run `openspec status --json` first; resume at the right step |
 | Dispatching implementer/reviewer subagents without an explicit `model:` parameter — they silently inherit Opus from the parent | Apply the Model Triage table for every dispatch; Sonnet is the default, Haiku for trivial mechanical tasks, Opus reserved for complex/cross-cutting implementation and the Step-C reconcile |
 | Reaching for Fable because a task "looks hard" — one Opus signal is not the Fable gate, and Fable burns ~2× Opus per token | Fable needs 3+ Opus signals AND long-horizon/novel work. Otherwise Opus. Never Fable for reviews or plan writing |
+| Running Step 4 design on Sonnet/Haiku because the session happened to be on it — the design is copied into every Task, so a shallow one costs more downstream than Opus costs here | Check the session model before brainstorming; below Opus, ask the user to `/model opus` (or `/model fable` while quota remains) and wait |
 | Retrying Fable after a quota/availability failure, or silently dropping the task | Re-dispatch the same task on `model: opus` and announce the downgrade; Opus is the standing top tier for the rest of the run |
 | Calling `openspec archive` without running `/simplify` first | Step 7 runs `/simplify` once (the sole quality/cleanup gate) before Step 8 archive |
 | Archiving with code comments that cite Task numbers, plan steps, or design decisions — meaningless after archive, confusing to later sessions | Step 7.5 strips workflow references and redundant comments from the diff before Step 8 |
@@ -525,6 +535,7 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 - About to dispatch the implementer on Opus when no Opus signal from the triage table fired.
 - About to dispatch on Fable without 3+ Opus signals AND long-horizon/novel work — or on Fable inside a parallel batch it would stall.
 - About to retry Fable after a quota failure instead of re-dispatching the same task on Opus.
+- About to start Step 4 brainstorming while the session runs on Sonnet or Haiku (design needs Opus, or Fable while quota remains).
 - About to let the SDD task reviewer run its code-quality half, or dispatch SDD's final whole-branch reviewer — both replaced by the single Step 7 `/simplify` pass.
 - About to dispatch an SDD implementer, task reviewer, or re-reviewer without swapping in its `references/step6-dispatch.md` block.
 - About to dispatch a Step 5 writer without the TASK SHAPE block — writing-plans defaults to full code blocks.
