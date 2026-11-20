@@ -35,6 +35,8 @@ Task(
     - Code: cite the code-refs file, never copy it (see CODE REFS)
 
     DROP:
+    - The `## Decisions to confirm` section (each decision stays where the
+      design body states it)
     - Open questions, spec issues found, risks
     - "Understanding" / context narrative, motivational text
     - Revision history, the owner-ruling story

@@ -35,7 +35,7 @@ Always run state detection first and tell the user where you're starting.
 1. Setup (first-run per project)
 2. Create change
 3. Fill proposal + specs (HARD GATE: openspec validate)
-4. Technical design (superpowers:brainstorming, design only) (HARD GATE: user reviews design.md)
+4. Technical design (design subagent on Opus or Fable, user picks; superpowers:brainstorming) (HARD GATE: user reviews design.md)
 4.5 Condense design (design.md stays; write design-brief.md for agents)
 5. Implementation plan (superpowers:writing-plans; one sub-plan file per Task + plan.md index) (HARD GATE: user reviews plan)
 6. Execute (superpowers:subagent-driven-development — spec-compliance review only)
@@ -124,53 +124,32 @@ openspec validate <name>
 
 ## Step 4 — Technical design
 
-**Design model — Opus floor, Fable allowed.** Design is the one step where reasoning depth pays for itself: every later step translates design.md, so a weak design is copied into every Task. Brainstorming runs inline in this session (it talks to the user), so the design runs on the session model — there is no `model:` parameter to pass. Before invoking it:
+**Design runs in a subagent on Opus or Fable — the user picks.** Design is the one step where reasoning depth pays for itself: every later step translates design.md, so a weak design is copied into every Task. The subagent carries its own `model:`, so the session model does not matter and the user never types `/model`.
 
-- Session on **Fable** → keep it, as long as Fable quota remains.
-- Session on **Opus** → proceed. Do not ask to move up to Fable; Fable is allowed here, not required.
-- Session on **Sonnet or Haiku** → STOP and ask the user to switch: _"Design runs on Opus (or Fable if quota remains). Run `/model opus` (or `/model fable`), then reply to continue."_ Do not start brainstorming below Opus.
-- **Fable quota runs out mid-design** (usage-limit error, model unavailable) → ask the user to `/model opus` and resume the design from where it stopped. Do not retry Fable, and do not finish the design on a lower tier.
+**Model confirmation.** Before dispatching, call `AskUserQuestion` with one question and exactly two options:
+
+- `Opus (Recommended)` → `model: opus`
+- `Fable` → `model: fable` (most capable, ~2× Opus per token, smaller quota — pick while Fable quota remains)
+
+Ask once per Step 4 entry; reuse the answer for revisions in the same session. Any answer other than these two → ask again. Sonnet and Haiku never design.
+
+**Dispatch.** One fresh `Task` with `subagent_type: "general-purpose"`, `model:` = the pick, prompt from **`references/step4-design.md`**. The agent runs `superpowers:brainstorming` itself. It cannot talk to the user, so the template has it pick the recommended option wherever brainstorming would ask, and list each such choice under `## Decisions to confirm` in design.md. It returns the design.md path, the code-refs file names, and the decision count — nothing else. Announce: _"Dispatching design agent on Opus (user's pick)."_
+
+The template carries these rules — keep them whatever you do:
+- **Specs locked:** read `openspec/changes/<name>/specs/` first; no requirements questions; HOW only.
+- **Normal prose in design.md.** No caveman/compression — it is the human review artifact: thorough, explanatory, with diagrams, trade-offs, rationale.
+- **Raw code stays out of design.md.** Generated code goes to `.superpowers/code-refs/<slug>.<ext>` — code only, native extension, no markdown fence, one comment line at the top saying what it is. design.md explains it in prose and links it. No fenced code blocks in design.md; one-line signatures inline are fine.
+- **Stop after design.md.** `superpowers:brainstorming` would normally hand off to `superpowers:writing-plans`; plan generation is mechanical (locked design → Tasks of signatures + pseudo code) and is dispatched on Sonnet in Step 5.
+
+**Fable quota runs out** (usage-limit error, model unavailable) → do not retry Fable. Re-dispatch the same template on `model: opus`; the new agent reads the partial design.md and code-refs on disk and continues. Announce: _"Fable quota exhausted — design re-dispatched on Opus."_ Opus is then the standing top tier for the rest of the run (Model Triage, Fable quota fallback).
 
 Fable here does not lift the Fable gate anywhere else: plan writing, reviews, and implementers still follow the Step 6 Model Triage rules.
 
-Invoke **superpowers:brainstorming** with this preset context (pass as skill args):
+**HARD GATE — design review.** After the design agent returns, STOP. Do NOT proceed to Step 5. Tell the user:
 
-```
-Requirements are already captured in openspec/changes/<name>/specs/.
-Read those files first. Skip all requirements-gathering questions —
-the WHAT is locked. Focus exclusively on the HOW: technical design,
-architecture, components, data flow, testing strategy.
+> "Design written to `openspec/changes/<name>/.superpowers/design.md`. Its `## Decisions to confirm` section lists <N> choices the design agent made without asking. Review it. Reply to approve, or give changes. Plan generation waits for your go-ahead."
 
-Save the design to: openspec/changes/<name>/.superpowers/design.md
-
-Write the design in normal prose. DO NOT apply caveman/compression —
-the design is the human review artifact and must stay thorough,
-comprehensive, and explanatory. Diagrams, trade-off discussion, and
-rationale all belong here.
-
-Raw code stays out of design.md. Any code you generate (function or
-class bodies, algorithms, schema DDL, config, longer snippets) goes in
-its own raw file: openspec/changes/<name>/.superpowers/code-refs/<slug>.<ext>
-— code only, native extension, no markdown fence, one comment line at
-the top saying what it is. In design.md, explain it in prose and link it
-as `code-refs/<slug>.<ext>`. No fenced code blocks in design.md; one-line
-signatures inline are fine.
-```
-
-Create the `.superpowers/` directory (and `code-refs/`, when there is code) if it doesn't exist.
-
-**Break the brainstorming → writing-plans auto-chain.** `superpowers:brainstorming` will normally hand off to `superpowers:writing-plans` in the same session, which means plan generation inherits the parent (usually Opus). Plan generation is mostly mechanical (locked design → Tasks of signatures + pseudo code) and should run on Sonnet. Add this to the step 4 args:
-
-```
-STOP after writing design.md. Do NOT chain into writing-plans —
-plan generation is dispatched separately on a cheaper model.
-```
-
-**HARD GATE — design review.** After design.md is written, STOP. Do NOT proceed to Step 5. Tell the user:
-
-> "Design written to `openspec/changes/<name>/.superpowers/design.md`. Review it. Reply to approve, or give changes. Plan generation waits for your go-ahead."
-
-The user needs time to read the design — it is the human review artifact. Only proceed to Step 4.5 after the user explicitly approves. If they request changes, revise design.md and re-surface the gate. Do not interpret silence, a new unrelated message, or "looks fine" mid-sentence as approval — wait for a clear go-ahead.
+The user needs time to read the design — it is the human review artifact. Only proceed to Step 4.5 after the user explicitly approves. If they request changes, **never revise inline** (the session may sit below Opus): send the changes to the same design agent with `SendMessage`, or dispatch a fresh design `Task` on the same model with the template's REVISION block filled in, then re-surface the gate. Do not interpret silence, a new unrelated message, or "looks fine" mid-sentence as approval — wait for a clear go-ahead.
 
 ## Step 4.5 — Condense design (only after design approved)
 
@@ -181,7 +160,7 @@ Dispatch one condenser in a fresh `Task` with `model: sonnet` (**template in `re
 - **Never edit, move, or delete design.md.** It stays the human version and the source of truth on conflict.
 - **Keep:** components + responsibilities, interfaces / signatures / schemas, flows, ordering, concurrency rules, exact names / paths / values / error strings, constraints, requirement-to-component map, testing strategy.
 - **Code is cited, never copied:** raw code lives in `.superpowers/code-refs/` (written at Step 4). The brief cites each file that matters as `code-refs/<file>` + one clause on how to use it (`implement as is`, `shape only`, `extend`). The condenser never pastes, edits, moves, or deletes those files. Signatures stay in the brief; the refs hold bodies. A fenced code block still inside an older design.md is kept in the brief verbatim.
-- **Drop:** open questions, spec issues found, risks, "Understanding" narrative, revision history, rationale paragraphs, rejected-alternatives tables, long "why this and not that", duplicated explanations, big ASCII diagrams (at most one small one, only if a slice truly needs it), motivational text, the owner-ruling story.
+- **Drop:** the `## Decisions to confirm` index (each decision stays where the design body states it), open questions, spec issues found, risks, "Understanding" narrative, revision history, rationale paragraphs, rejected-alternatives tables, long "why this and not that", duplicated explanations, big ASCII diagrams (at most one small one, only if a slice truly needs it), motivational text, the owner-ruling story.
 - **One-clause reason only** where an implementer could otherwise "fix" something wrongly (e.g. "square collision body, not lit cells: do not change").
 - **No restated spec scenarios** — refer as `<Requirement header> / <Scenario name>`.
 - **Style:** caveman-compressed; identifiers and values verbatim.
@@ -479,7 +458,7 @@ openspec archive <name>
 |---|---|---|
 | 2 | `openspec-new-change` | openspec plugin |
 | 3 | `openspec-continue-change` | openspec plugin |
-| 4 | `superpowers:brainstorming` | superpowers plugin |
+| 4 | design `Task` (opus or fable, user's pick) running `superpowers:brainstorming` | superpowers plugin |
 | 4.5 | condenser `Task` (sonnet) | — |
 | 5 | `superpowers:writing-plans` | superpowers plugin |
 | 6 | `superpowers:subagent-driven-development` | superpowers plugin |
@@ -492,14 +471,15 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 
 | Mistake | Fix |
 |---|---|
-| Invoking `superpowers:brainstorming` without the "specs already locked" preset — it re-asks requirements questions | Always include the preset in step 4; point brainstorming at `openspec/changes/<name>/specs/` |
+| Invoking `superpowers:brainstorming` without the "specs already locked" preset — it re-asks requirements questions | Always dispatch Step 4 from `references/step4-design.md`; it carries the preset and points brainstorming at `openspec/changes/<name>/specs/` |
 | Skipping the `openspec validate` gate because "specs look fine" | Never skip. The whole value of openspec is that archive validates — if validate fails now, it fails at archive too |
 | Archiving a `spec-driven` change without writing the stub pointers | Check schema first. If not `openspec-superpowers`, write the stubs |
 | Reimplementing a step inline instead of delegating | If a delegate is missing, stop and tell the user. Never reinvent |
 | Skipping state detection and restarting from step 1 | Always run `openspec status --json` first; resume at the right step |
 | Dispatching implementer/reviewer subagents without an explicit `model:` parameter — they silently inherit Opus from the parent | Apply the Model Triage table for every dispatch; Sonnet is the default, Haiku for trivial mechanical tasks, Opus reserved for complex/cross-cutting implementation and the Step-C reconcile |
 | Reaching for Fable because a task "looks hard" — one Opus signal is not the Fable gate, and Fable burns ~2× Opus per token | Fable needs 3+ Opus signals AND long-horizon/novel work. Otherwise Opus. Never Fable for reviews or plan writing |
-| Running Step 4 design on Sonnet/Haiku because the session happened to be on it — the design is copied into every Task, so a shallow one costs more downstream than Opus costs here | Check the session model before brainstorming; below Opus, ask the user to `/model opus` (or `/model fable` while quota remains) and wait |
+| Running Step 4 design inline on whatever model the session is on, or telling the user to type `/model` — the design is copied into every Task, so a shallow one costs more downstream than Opus costs here | Ask with `AskUserQuestion` (Opus or Fable only), then dispatch the design `Task` with that `model:`; the session model is irrelevant |
+| Revising design.md inline after the user asks for changes — the session may be below Opus | Send the changes to the design agent (`SendMessage`) or re-dispatch the design `Task` on the same model with the REVISION block |
 | Retrying Fable after a quota/availability failure, or silently dropping the task | Re-dispatch the same task on `model: opus` and announce the downgrade; Opus is the standing top tier for the rest of the run |
 | Calling `openspec archive` without running `/simplify` first | Step 7 runs `/simplify` once (the sole quality/cleanup gate) before Step 8 archive |
 | Archiving with code comments that cite Task numbers, plan steps, or design decisions — meaningless after archive, confusing to later sessions | Step 7.5 strips workflow references and redundant comments from the diff before Step 8 |
@@ -528,14 +508,15 @@ If any delegate skill is missing, jump back to Step 0 and surface the install co
 ## Red Flags — Stop and Recheck
 
 - About to call `openspec archive` without running `openspec validate` first.
-- About to call step 4 without reading `openspec/changes/<name>/specs/` yourself.
+- About to dispatch the Step 4 design agent without `openspec/changes/<name>/specs/` named in its prompt.
 - About to ask brainstorming requirements-gathering questions when specs already exist.
 - About to write `.superpowers/design.md` outside the change directory.
 - About to dispatch a subagent without an explicit `model:` parameter (silently inherits Opus).
 - About to dispatch the implementer on Opus when no Opus signal from the triage table fired.
 - About to dispatch on Fable without 3+ Opus signals AND long-horizon/novel work — or on Fable inside a parallel batch it would stall.
 - About to retry Fable after a quota failure instead of re-dispatching the same task on Opus.
-- About to start Step 4 brainstorming while the session runs on Sonnet or Haiku (design needs Opus, or Fable while quota remains).
+- About to run Step 4 design inline, dispatch it without the user's Opus/Fable pick, or ask the user to type `/model`.
+- About to revise design.md inline instead of through the design agent.
 - About to let the SDD task reviewer run its code-quality half, or dispatch SDD's final whole-branch reviewer — both replaced by the single Step 7 `/simplify` pass.
 - About to dispatch an SDD implementer, task reviewer, or re-reviewer without swapping in its `references/step6-dispatch.md` block.
 - About to dispatch a Step 5 writer without the TASK SHAPE block — writing-plans defaults to full code blocks.
